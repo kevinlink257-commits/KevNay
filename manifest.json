@@ -1,11 +1,11 @@
 {
-  "name": "Kev Nay - POS & Cloud Hub",
-  "short_name": "Kev Nay POS",
-  "description": "Sistema POS con inventario, clientes y cierre de caja",
+  "name": "Inverkev - Gestión de Préstamos",
+  "short_name": "Inverkev",
+  "description": "Sistema Avanzado de Crédito y Cobranza - PWA",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#dc2626",
+  "background_color": "#000000",
+  "theme_color": "#581c87",
   "orientation": "portrait-primary",
   "scope": "./",
   "icons": [
