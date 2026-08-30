@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kev Nay - Sistema POS & Reportes Financieros Avanzados</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- JsBarcode para códigos de barras -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <!-- FontAwesome para iconos -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+      @media print {
+          body * { visibility: hidden !important; }
+          #printable-ticket, #printable-ticket * { visibility: visible !important; }
+          #printable-ticket {
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 50mm;
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 11px;
+              color: black !important;
+              background: white !important;
+              padding: 4mm;
+              display: block !important;
+              text-align: left;
+              line-height: 1.2;
+          }
+      }
+  </style>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#dc2626">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kev Nay POS">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<style>
+#login-overlay{position:fixed;inset:0;z-index:9999;background:radial-gradient(120% 120% at 20% 10%, rgba(220,38,38,0.25), transparent 50%), radial-gradient(100% 100% at 80% 90%, rgba(0,0,0,0.8), transparent 50%), rgba(17,24,39,0.96);backdrop-filter:blur(18px);display:flex;align-items:center;justify-content:center;padding:20px;transition:all .4s}
+#login-overlay.hidden{opacity:0;pointer-events:none;transform:scale(1.05)}
+.login-box{width:100%;max-width:380px;background:rgba(31,41,55,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:22px;box-shadow:0 30px 80px rgba(0,0,0,0.7);padding:30px 26px}
+.login-logo{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:22px}
+.login-field{position:relative;margin-bottom:14px}
+.login-field input{width:100%;background:#111827;border:1px solid #374151;border-radius:12px;padding:12px 44px 12px 14px;color:white;letter-spacing:1px;font-weight:600}
+.toggle-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.06);border:1px solid #374151;width:32px;height:32px;border-radius:8px;cursor:pointer;display:grid;place-items:center}
+.login-error{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;font-size:.85rem;font-weight:600}
+.login-error.show{display:block}
+</style>
+</head>
+
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">
+      <i class="fa-solid fa-scorpion text-red-500 text-4xl"></i>
+      <h2 style="font-size:1.6rem;font-weight:800;color:white">KEV NAY</h2>
+      <p style="color:#9ca3af;font-size:.85rem;text-align:center">POS & Cloud Hub<br><small>Acceso seguro - Sistema de caja</small></p>
+    </div>
+    <div class="login-field">
+      <input type="password" id="login-pass" placeholder="••••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') intentarLogin()">
+      <button class="toggle-eye" onclick="togglePass()" type="button">👁️</button>
+    </div>
+    <button style="width:100%;padding:14px;background:#dc2626;color:white;border-radius:12px;font-weight:700;border:none;cursor:pointer" onclick="intentarLogin()" id="btn-login">🔐 Ingresar al POS</button>
+    <div class="login-error" id="login-error"></div>
+    <div style="margin-top:14px;font-size:.78rem;color:#9ca3af;line-height:1.4;background:rgba(255,255,255,0.03);border:1px solid #374151;border-radius:10px;padding:10px 12px">🔒 Clave protegida con hash SHA-256. No está en texto plano.<br>💡 Puedes instalar esta app: menú navegador > Instalar app.<br><br><button onclick="instalarPWA()" id="btn-instalar-pwa" style="display:none;width:100%;margin-top:8px;padding:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:8px">📲 Instalar app</button></div>
+  </div>
+</div>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+
+  <!-- Navbar -->
+  <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center shadow-md">
+      <div class="flex items-center space-x-3">
+          <i class="fa-solid fa-scorpion text-red-500 text-2xl"></i>
+          <h1 class="text-xl font-bold tracking-wider">KEV NAY <span class="text-xs text-red-400 font-normal">POS & Cloud Hub</span></h1>
+      </div>
+      <nav class="flex space-x-2 flex-wrap gap-y-2">
+          <button onclick="switchTab('pos')" id="btn-pos" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium transition hover:bg-red-500"><i class="fa-solid fa-cash-register mr-2"></i>Caja / POS</button>
+          <button onclick="requestInventoryAccess()" id="btn-inventory" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-boxes-stacked mr-2"></i>Inventario</button>
+          <button onclick="switchTab('generator')" id="btn-generator" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-barcode mr-2"></i>Generador Rápido</button>
+          <button onclick="switchTab('customers')" id="btn-customers" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-users mr-2"></i>Clientes & Historial</button>
+          <button onclick="switchTab('closing')" id="btn-closing" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes & Cierre</button>
+      </nav>
+  </header>
+
+  <!-- Contenido Principal -->
+  <main class="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 gap-6">
+
+      <!-- VISTA POS -->
+      <section id="view-pos" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div class="lg:col-span-2 bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col h-[75vh]">
+              <div class="mb-4 flex gap-3">
+                  <input type="text" id="search-product" placeholder="Buscar producto o escanear código..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500" oninput="filterProducts(this.value)">
+              </div>
+              <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto flex-1 pr-2"></div>
+          </div>
+
+          <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col h-[75vh] justify-between">
+              <div>
+                  <h2 class="text-lg font-bold mb-3 border-b border-gray-700 pb-2"><i class="fa-solid fa-cart-shopping mr-2"></i>Venta Actual</h2>
+                  <div class="mb-3">
+                      <label class="block text-xs text-gray-400 mb-1">Cliente:</label>
+                      <select id="sale-customer" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white">
+                          <option value="">Cliente General / Mostrador</option>
+                      </select>
+                  </div>
+                  <div id="cart-items" class="space-y-2 overflow-y-auto max-h-[22vh] pr-2">
+                      <p class="text-gray-500 text-center py-4">El carrito está vacío</p>
+                  </div>
+              </div>
+              <div class="border-t border-gray-700 pt-3 space-y-2">
+                  <div class="flex justify-between text-sm">
+                      <span>Subtotal:</span>
+                      <span id="cart-subtotal">$0.00</span>
+                  </div>
+                  <div class="flex justify-between text-sm items-center">
+                      <span>Descuento ($):</span>
+                      <input type="number" id="cart-discount" value="0" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                  </div>
+                  <div class="flex justify-between text-sm items-center">
+                      <span>IVA (%):</span>
+                      <input type="number" id="cart-vat-rate" value="19" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                  </div>
+                  <div class="flex justify-between text-lg font-bold">
+                      <span>Total:</span>
+                      <span id="cart-total" class="text-red-400">$0.00</span>
+                  </div>
+                  <!-- Calculadora rápida de Vuelto -->
+                  <div class="bg-gray-900 p-2 rounded border border-gray-700 text-xs space-y-1">
+                      <div class="flex justify-between items-center">
+                          <span class="text-gray-400">Efectivo Recibido:</span>
+                          <input type="number" id="cash-received" placeholder="0" class="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-right text-white" oninput="calculateChange()">
+                      </div>
+                      <div class="flex justify-between font-bold">
+                          <span class="text-gray-400">Cambio / Vuelto:</span>
+                          <span id="cash-change" class="text-green-400">$0.00</span>
+                      </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                      <button onclick="processSale('cash')" class="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-money-bill-wave mr-1"></i>Efectivo</button>
+                      <button onclick="processSale('card')" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-credit-card mr-1"></i>Tarjeta</button>
+                  </div>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA INVENTARIO -->
+      <section id="view-inventory" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
+          <div class="flex justify-between items-center mb-6">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-boxes-stacked mr-2"></i>Control de Inventario, Costos & Códigos de Barras</h2>
+              <div class="flex space-x-2">
+                  <button onclick="openNewProductModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-plus mr-2"></i>Nuevo Producto</button>
+                  <button onclick="changeAdminPassword()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-key mr-2"></i>Contraseña</button>
+              </div>
+          </div>
+          <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                  <thead>
+                      <tr class="border-b border-gray-700 text-gray-400 text-sm">
+                          <th class="py-3 px-4">Imagen</th>
+                          <th class="py-3 px-4">Producto</th>
+                          <th class="py-3 px-4">SKU / Código</th>
+                          <th class="py-3 px-4">Código de Barras</th>
+                          <th class="py-3 px-4">Costo Compra</th>
+                          <th class="py-3 px-4">Precio Venta</th>
+                          <th class="py-3 px-4">Stock</th>
+                          <th class="py-3 px-4 text-center">Acciones</th>
+                      </tr>
+                  </thead>
+                  <tbody id="inventory-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
+              </table>
+          </div>
+      </section>
+
+      <!-- VISTA GENERADOR RÁPIDO DE CÓDIGOS DE BARRAS -->
+      <section id="view-generator" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-xl mx-auto w-full text-center space-y-6">
+          <div class="border-b border-gray-700 pb-3">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-barcode mr-2"></i>Generador Automático de Códigos de Barras</h2>
+              <p class="text-xs text-gray-400 mt-1">Escribe cualquier código o texto para generar y visualizar barras al instante.</p>
+          </div>
+          <div class="space-y-4">
+              <div>
+                  <label class="block text-xs text-gray-400 mb-2 font-medium">Texto o Código SKU:</label>
+                  <input type="text" id="live-barcode-input" placeholder="Ej. KEVNAY-001" value="KEVNAY-12345" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-center text-lg text-white focus:outline-none focus:border-red-500" oninput="generateLiveBarcode()">
+              </div>
+              <div class="flex justify-center gap-4 text-xs">
+                  <div>
+                      <label class="text-gray-400 block mb-1">Formato:</label>
+                      <select id="live-barcode-format" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white" onchange="generateLiveBarcode()">
+                          <option value="CODE128">CODE 128 (Estándar)</option>
+                          <option value="EAN13">EAN-13</option>
+                          <option value="UPC">UPC</option>
+                          <option value="CODE39">CODE 39</option>
+                      </select>
+                  </div>
+              </div>
+              <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 flex flex-col items-center justify-center space-y-4">
+                  <svg id="live-barcode-svg" class="max-w-full bg-white p-3 rounded"></svg>
+                  <button onclick="printLiveBarcode()" class="bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Código de Barras</button>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA CLIENTES E HISTORIAL -->
+      <section id="view-customers" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-6">
+          <div class="flex justify-between items-center">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-users mr-2"></i>Clientes y Compras Realizadas</h2>
+              <button onclick="openNewCustomerModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-user-plus mr-2"></i>Nuevo Cliente</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 overflow-y-auto max-h-[60vh]">
+                  <h3 class="font-bold text-sm mb-3 text-gray-400">Seleccionar Cliente:</h3>
+                  <div id="customer-list-buttons" class="space-y-2"></div>
+              </div>
+              <div class="md:col-span-2 bg-gray-900 p-4 rounded-lg border border-gray-700 flex flex-col justify-between">
+                  <div>
+                      <div class="flex justify-between items-center mb-3">
+                          <h3 id="selected-customer-title" class="font-bold text-md text-red-400">Seleccione un cliente para ver su historial</h3>
+                          <button id="btn-edit-selected-customer" onclick="editCurrentSelectedCustomer()" class="hidden bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs text-white font-medium"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar Cliente</button>
+                      </div>
+                      <div class="overflow-x-auto max-h-[40vh] overflow-y-auto">
+                          <table class="w-full text-left border-collapse">
+                              <thead>
+                                  <tr class="border-b border-gray-700 text-gray-400 text-xs">
+                                      <th class="py-2 px-3">Fecha y Hora</th>
+                                      <th class="py-2 px-3">Método</th>
+                                      <th class="py-2 px-3">Total</th>
+                                      <th class="py-2 px-3 text-center">Acción</th>
+                                  </tr>
+                              </thead>
+                              <tbody id="customer-purchases-body" class="divide-y divide-gray-700 text-sm">
+                                  <tr><td colspan="4" class="text-center py-4 text-gray-500">Ningún cliente seleccionado</td></tr>
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA REPORTES Y CIERRE DE CAJA -->
+      <section id="view-closing" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto w-full space-y-6">
+          <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes Financieros, Contabilidad & Cierre</h2>
+              <div class="space-x-2 flex">
+                  <button onclick="registerCashMovement()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"><i class="fa-solid fa-wallet mr-1"></i>Ingreso/Gasto</button>
+                  <button onclick="exportSalesToCSV()" class="bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"><i class="fa-solid fa-file-excel mr-1"></i>Exportar Excel</button>
+              </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-3">
+                  <h3 class="font-bold text-sm text-gray-300">Parámetros de Caja y Auditoría</h3>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Efectivo Inicial en Caja:</label>
+                      <input type="number" id="closing-initial-cash" value="50000" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" oninput="calculateClosingPreview()">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Efectivo Real Contado en Gaveta:</label>
+                      <input type="number" id="closing-actual-cash" placeholder="0" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" oninput="calculateClosingPreview()">
+                  </div>
+                  <button onclick="generateCashClosingReport()" class="w-full bg-red-600 hover:bg-red-500 py-3 rounded-lg font-bold text-white transition mt-2"><i class="fa-solid fa-print mr-2"></i>Generar Cierre Financiero (50mm)</button>
+              </div>
+
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 flex flex-col justify-between">
+                  <h3 class="font-bold text-sm text-gray-300 mb-2"><i class="fa-solid fa-calculator mr-1"></i>Panel Contable (Sesión Actual)</h3>
+                  <div class="space-y-2 my-auto text-xs">
+                      <div class="flex justify-between"><span>Ventas en Efectivo:</span><span id="prev-cash-val" class="font-bold text-green-400">$0</span></div>
+                      <div class="flex justify-between"><span>Ventas con Tarjeta:</span><span id="prev-card-val" class="font-bold text-blue-400">$0</span></div>
+                      <div class="flex justify-between"><span>Movimientos Caja (Gastos/Ingresos):</span><span id="prev-mov-val" class="font-bold text-yellow-400">$0</span></div>
+                      <div class="flex justify-between border-t border-gray-800 pt-1"><span>Efectivo Esperado en Caja:</span><span id="prev-expected-val" class="font-bold text-white">$0</span></div>
+                      <div class="flex justify-between text-gray-400"><span>Costo Total de Ventas:</span><span id="prev-cost-val" class="text-gray-300">$0</span></div>
+                      <div class="flex justify-between text-sm font-bold bg-gray-800 p-1.5 rounded">
+                          <span class="text-green-400">Utilidad Bruta:</span>
+                          <span id="prev-profit-val" class="text-green-400">$0 (0%)</span>
+                      </div>
+                      <div class="pt-1 border-t border-gray-800 flex justify-between text-sm font-bold">
+                          <span>Total Facturado:</span>
+                          <span id="prev-total-val" class="text-red-400">$0</span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+              <h3 class="font-bold text-sm mb-3 text-gray-300"><i class="fa-solid fa-receipt mr-2"></i>Historial de Ventas Registradas</h3>
+              <div class="overflow-x-auto max-h-48 overflow-y-auto">
+                  <table class="w-full text-left border-collapse text-xs">
+                      <thead>
+                          <tr class="border-b border-gray-700 text-gray-400">
+                              <th class="py-2 px-2">ID Venta</th>
+                              <th class="py-2 px-2">Hora</th>
+                              <th class="py-2 px-2">Método</th>
+                              <th class="py-2 px-2">Total</th>
+                          </tr>
+                      </thead>
+                      <tbody id="closing-sales-list" class="divide-y divide-gray-800">
+                          <tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas en esta sesión.</td></tr>
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      </section>
+
+  </main>
+
+  <!-- Contenedor Único y Visible para Impresión (Ticket 50mm) -->
+  <div id="printable-ticket" style="display:none;"></div>
+
+  <!-- Script Principal -->
+  <script>
+      const SUPABASE_URL = 'https://cjoqtnpqcantwmghagsv.supabase.co';
+      const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqb3F0bnBxY2FudHdtZ2hhZ3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MDIwMzIsImV4cCI6MjEwMjk3ODAzMn0.rV3SK1qTF_QuIImRNmrgHo0zQvdgZqvzgLCPOwAk9Ek';
+
+      let supabaseClient = null;
+      try {
+          supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+          console.error('Error inicializando Supabase:', e);
+      }
+
+      let products = [];
+      let customers = [];
+      let cart = [];
+      let salesHistory = [];
+      let cashMovements = 0;
+      let currentSelectedCustomer = null;
+
+      function getAdminPassword() {
+          return localStorage.getItem('kev_nay_admin_pass') || '12345';
+      }
+
+      function requestInventoryAccess() {
+          const pass = prompt('Módulo protegido. Ingrese la contraseña de Administrador:');
+          if (pass === null) return;
+          if (pass === getAdminPassword()) {
+              switchTab('inventory');
+          } else {
+              alert('Contraseña incorrecta.');
+          }
+      }
+
+      function changeAdminPassword() {
+          const currentPass = prompt('Ingrese la contraseña actual:');
+          if (currentPass !== getAdminPassword()) return alert('Contraseña incorrecta.');
+          const newPass = prompt('Nueva contraseña de Administrador:');
+          if (!newPass) return;
+          localStorage.setItem('kev_nay_admin_pass', newPass.trim());
+          alert('¡Contraseña actualizada con éxito!');
+      }
+
+      function switchTab(tab) {
+          ['pos', 'inventory', 'generator', 'customers', 'closing'].forEach(t => {
+              const view = document.getElementById(`view-${t}`);
+              if (view) view.classList.add('hidden');
+              const btn = document.getElementById(`btn-${t}`);
+              if (btn) {
+                  btn.classList.remove('bg-red-600', 'text-white');
+                  btn.classList.add('bg-gray-700', 'text-gray-300');
+              }
+          });
+          const targetView = document.getElementById(`view-${tab}`);
+          if (targetView) targetView.classList.remove('hidden');
+          
+          const activeBtn = document.getElementById(`btn-${tab}`);
+          if (activeBtn) {
+              activeBtn.classList.remove('bg-gray-700', 'text-gray-300');
+              activeBtn.classList.add('bg-red-600', 'text-white');
+          }
+
+          if(tab === 'inventory' || tab === 'pos') fetchProducts();
+          if(tab === 'generator') generateLiveBarcode();
+          if(tab === 'customers' || tab === 'pos') {
+              fetchCustomers();
+              if(tab === 'customers') renderCustomerListForHistory();
+          }
+          if(tab === 'closing') {
+              fetchSalesHistory();
+          }
+      }
+
+      // Generador en tiempo real para la pestaña "Generador Rápido"
+      function generateLiveBarcode() {
+          const textInput = document.getElementById('live-barcode-input');
+          const formatSelect = document.getElementById('live-barcode-format');
+          if (!textInput || !formatSelect) return;
+          
+          const val = textInput.value.trim() || 'KEVNAY-DEFAULT';
+          const format = formatSelect.value;
+          
+          try {
+              JsBarcode("#live-barcode-svg", val, {
+                  format: format,
+                  lineColor: "#000",
+                  width: 2,
+                  height: 90,
+                  displayValue: true,
+                  fontSize: 14
+              });
+          } catch(e) {
+              console.error("Error generando código de barras:", e);
+          }
+      }
+
+      function printLiveBarcode() {
+          const textInput = document.getElementById('live-barcode-input');
+          const val = textInput ? textInput.value.trim() : 'Código';
+          const ticketDiv = document.getElementById('printable-ticket');
+          
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; padding: 4mm; width: 50mm;">
+                  <h4 style="margin:0 0 3mm 0; font-size:12px;"><b>KEV NAY - ETIQUETA</b></h4>
+                  <svg id="print-live-single"></svg>
+                  <p style="margin:3mm 0 0 0; font-size:10px;">Ref: ${val}</p>
+              </div>
+          `;
+          try {
+              JsBarcode("#print-live-single", val, { format: "CODE128", width: 1.2, height: 40, displayValue: true, fontSize: 10 });
+          } catch(e) {}
+          window.print();
+      }
+
+      async function fetchProducts() {
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('products').select('*').order('name', { ascending: true });
+              if (error) throw error;
+              products = data || [];
+              renderProductGrid();
+              if(!document.getElementById('view-inventory').classList.contains('hidden')) {
+                  renderInventoryTable();
+              }
+          } catch (err) {
+              console.error('Error al cargar productos:', err);
+          }
+      }
+
+      async function fetchCustomers() {
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('customers').select('*').order('name', { ascending: true });
+              if (error) throw error;
+              customers = data || [];
+              renderCustomerSelect();
+              if(!document.getElementById('view-customers').classList.contains('hidden')) {
+                  renderCustomerListForHistory();
+              }
+          } catch (err) {
+              console.error('Error al cargar clientes:', err);
+          }
+      }
+
+      async function fetchSalesHistory() {
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('sales').select('*').order('date', { ascending: false });
+              if (error) throw error;
+              salesHistory = data || [];
+              calculateClosingPreview();
+              renderClosingSalesTable();
+          } catch(e) { console.error(e); }
+      }
+
+      function filterProducts(query) {
+          const grid = document.getElementById('product-grid');
+          if(!grid) return;
+          grid.innerHTML = '';
+          const filtered = products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()) || (p.code && p.code.includes(query)));
+
+          if (filtered.length === 0) {
+              grid.innerHTML = '<p class="text-gray-500 col-span-full text-center py-4">No se encontraron productos.</p>';
+              return;
+          }
+
+          const fragment = document.createDocumentFragment();
+          filtered.forEach(p => {
+              const card = document.createElement('div');
+              card.className = `bg-gray-900 border border-gray-700 rounded-lg p-3 flex flex-col justify-between cursor-pointer hover:border-red-500 transition ${p.stock <= 0 ? 'opacity-50 pointer-events-none' : ''}`;
+              card.onclick = () => addToCart(p.id);
+
+              const imgSrc = p.image_url && p.image_url.trim() !== '' ? p.image_url : 'https://placehold.co/150x150/1f2937/9ca3af?text=Sin+Foto';
+
+              card.innerHTML = `
+                  <div class="flex flex-col items-center text-center mb-2">
+                      <img src="${imgSrc}" alt="${p.name}" class="w-16 h-16 object-cover rounded-lg border border-gray-700 bg-gray-800 mb-2 shadow" onerror="this.src='https://placehold.co/150x150/1f2937/9ca3af?text=Error'">
+                      <h3 class="font-bold text-sm text-white line-clamp-1 w-full">${p.name}</h3>
+                      <p class="text-xs text-gray-400">Cod: ${p.code || 'N/A'}</p>
+                  </div>
+                  <div class="flex justify-between items-center mt-1 border-t border-gray-800 pt-2">
+                      <span class="text-red-400 font-bold">$${parseFloat(p.price).toLocaleString()}</span>
+                      <span class="text-xs bg-gray-800 px-2 py-0.5 rounded text-gray-300">Stock: ${p.stock}</span>
+                  </div>
+              `;
+              fragment.appendChild(card);
+          });
+          grid.appendChild(fragment);
+      }
+
+      function renderProductGrid() {
+          filterProducts('');
+      }
+
+      function renderCustomerSelect() {
+          const select = document.getElementById('sale-customer');
+          if(!select) return;
+          const currentSelected = select.value;
+          select.innerHTML = '<option value="">Cliente General / Mostrador</option>';
+          customers.forEach(c => {
+              const opt = document.createElement('option');
+              opt.value = c.id;
+              opt.textContent = `${c.name} (NIT: ${c.nit || 'N/A'} / Cédula: ${c.cedula || 'N/A'})`;
+              select.appendChild(opt);
+          });
+          if(currentSelected) select.value = currentSelected;
+      }
+
+      function addToCart(productId) {
+          const product = products.find(p => p.id === productId);
+          if (!product || product.stock <= 0) return;
+          const existing = cart.find(item => item.id === productId);
+          if (existing) {
+              if (existing.qty < product.stock) existing.qty++;
+              else alert('Stock máximo alcanzado.');
+          } else {
+              cart.push({ ...product, qty: 1 });
+          }
+          renderCart();
+      }
+
+      function renderCart() {
+          const container = document.getElementById('cart-items');
+          if(!container) return;
+          if (cart.length === 0) {
+              container.innerHTML = '<p class="text-gray-500 text-center py-4">El carrito está vacío</p>';
+              document.getElementById('cart-subtotal').innerText = '$0.00';
+              document.getElementById('cart-total').innerText = '$0.00';
+              calculateChange();
+              return;
+          }
+          container.innerHTML = '';
+          let subtotal = 0;
+          const fragment = document.createDocumentFragment();
+          cart.forEach(item => {
+              subtotal += item.price * item.qty;
+              const div = document.createElement('div');
+              div.className = 'flex justify-between items-center bg-gray-900 p-2 rounded border border-gray-700 text-sm';
+              div.innerHTML = `
+                  <div>
+                      <p class="font-semibold">${item.name}</p>
+                      <p class="text-xs text-gray-400">$${parseFloat(item.price).toLocaleString()} x ${item.qty}</p>
+                  </div>
+                  <div class="flex items-center space-x-2">
+                      <button onclick="changeQty(${item.id}, 1)" class="bg-gray-700 px-2 rounded text-white">+</button>
+                      <button onclick="changeQty(${item.id}, -1)" class="bg-gray-700 px-2 rounded text-white">-</button>
+                  </div>
+              `;
+              fragment.appendChild(div);
+          });
+          container.appendChild(fragment);
+
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const vatAmount = subtotalAfterDiscount * (vatRate / 100);
+          const total = subtotalAfterDiscount + vatAmount;
+
+          document.getElementById('cart-subtotal').innerText = `$${subtotal.toLocaleString()}`;
+          document.getElementById('cart-total').innerText = `$${total.toLocaleString()}`;
+          calculateChange();
+      }
+
+      function calculateChange() {
+          const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const total = subtotalAfterDiscount + (subtotalAfterDiscount * (vatRate / 100));
+
+          const received = parseFloat(document.getElementById('cash-received').value) || 0;
+          const change = received - total;
+          const changeEl = document.getElementById('cash-change');
+          if(changeEl) changeEl.innerText = change >= 0 ? `$${change.toLocaleString()}` : '$0.00';
+      }
+
+      function changeQty(productId, delta) {
+          const item = cart.find(i => i.id === productId);
+          if (!item) return;
+          const product = products.find(p => p.id === productId);
+          item.qty += delta;
+          if (item.qty <= 0) cart = cart.filter(i => i.id !== productId);
+          else if (item.qty > product.stock) {
+              item.qty = product.stock;
+              alert('Stock insuficiente.');
+          }
+          renderCart();
+      }
+
+      async function processSale(method) {
+          if (cart.length === 0) return alert('El carrito está vacío.');
+          const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const vatAmount = subtotalAfterDiscount * (vatRate / 100);
+          const total = subtotalAfterDiscount + vatAmount;
+
+          const customerId = document.getElementById('sale-customer').value || null;
+          const selectedCustomerObj = customers.find(c => c.id == customerId);
+
+          const saleRecord = {
+              id: Date.now(),
+              date: new Date().toISOString(),
+              payment_method: method,
+              customer_id: customerId ? parseInt(customerId) : null,
+              subtotal,
+              discount,
+              vat_amount: vatAmount,
+              total,
+              items_snapshot: [...cart]
+          };
+
+          try {
+              const { error: saleError } = await supabaseClient.from('sales').insert([saleRecord]);
+              if (saleError) {
+                  const basicRecord = {
+                      id: saleRecord.id,
+                      date: saleRecord.date,
+                      payment_method: method,
+                      customer_id: customerId ? parseInt(customerId) : null,
+                      total
+                  };
+                  const { error: retryError } = await supabaseClient.from('sales').insert([basicRecord]);
+                  if (retryError) throw retryError;
+              }
+
+              for (const item of cart) {
+                  const prod = products.find(p => p.id === item.id);
+                  const newStock = prod.stock - item.qty;
+                  const { error: stockError } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', item.id);
+                  if (stockError) throw stockError;
+                  prod.stock = newStock;
+              }
+
+              salesHistory.unshift(saleRecord);
+              printSaleTicket(saleRecord, cart, selectedCustomerObj);
+
+              alert(`¡Venta procesada con éxito! Total: $${total.toLocaleString()}`);
+              cart = [];
+              document.getElementById('cart-discount').value = 0;
+              document.getElementById('cash-received').value = '';
+              renderCart();
+              renderProductGrid();
+          } catch (err) {
+              console.error('Error al procesar la venta:', err);
+              alert('Error al registrar la venta en Supabase.');
+          }
+      }
+
+      function printSaleTicket(sale, items, customer) {
+          const ticketDiv = document.getElementById('printable-ticket');
+          let itemsHtml = items.map(i => `
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span>${i.qty}x ${i.name || i.product_name || 'Prod'}</span>
+                  <span>$${((i.price || 0) * (i.qty || 1)).toLocaleString()}</span>
+              </div>
+          `).join('');
+
+          const customerName = customer ? customer.name : 'Cliente General';
+          const customerPhone = customer && customer.phone ? customer.phone : 'N/A';
+          const customerCedula = customer && customer.cedula ? customer.cedula : 'N/A';
+          const customerNit = customer && customer.nit ? customer.nit : 'N/A';
+          const customerAddress = customer && customer.address ? customer.address : 'Mostrador';
+
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; margin-bottom: 6px;">
+                  <h3 style="margin:0; font-size:13px;"><b>KEV NAY POS</b></h3>
+                  <p style="margin:1px 0; font-size:9px;">Factura de Venta / Recibo</p>
+                  <p style="margin:1px 0; font-size:9px;">${new Date(sale.date).toLocaleString()}</p>
+              </div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="margin:2px 0;"><b>Cliente:</b> ${customerName}</p>
+              <p style="margin:2px 0;"><b>Teléfono:</b> ${customerPhone}</p>
+              <p style="margin:2px 0;"><b>Cédula:</b> ${customerCedula}</p>
+              <p style="margin:2px 0;"><b>NIT:</b> ${customerNit}</p>
+              <p style="margin:2px 0;"><b>Dirección:</b> ${customerAddress}</p>
+              <p style="margin:2px 0;"><b>Pago:</b> ${sale.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</p>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="margin-bottom: 4px;">${itemsHtml}</div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>$${parseFloat(sale.subtotal || sale.total || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Descuento:</span><span>$${parseFloat(sale.discount || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>IVA:</span><span>$${parseFloat(sale.vat_amount || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:3px;"><span><b>TOTAL:</b></span><span><b>$${parseFloat(sale.total || 0).toLocaleString()}</b></span></div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="text-align: center; margin-top: 6px; font-size:9px;">¡Gracias por su compra!<br/>Kev Nay Business Hub</p>
+          `;
+          window.print();
+      }
+
+      function renderInventoryTable() {
+          const tbody = document.getElementById('inventory-table-body');
+          if(!tbody) return;
+          tbody.innerHTML = '';
+          if (products.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-500">No hay productos registrados.</td></tr>';
+              return;
+          }
+          const fragment = document.createDocumentFragment();
+          products.forEach((p, index) => {
+              const tr = document.createElement('tr');
+              tr.className = 'border-b border-gray-700';
+              const barcodeId = `barcode-${index}`;
+              const safeCode = p.code || ('770' + Math.floor(100000 + Math.random() * 900000));
+              const imgSrc = p.image_url && p.image_url.trim() !== '' ? p.image_url : 'https://placehold.co/100x100/1f2937/9ca3af?text=Sin+Foto';
+              const costPrice = p.cost_price || 0;
+
+              tr.innerHTML = `
+                  <td class="py-3 px-4"><img src="${imgSrc}" class="w-10 h-10 object-cover rounded bg-gray-900 border border-gray-700"></td>
+                  <td class="py-3 px-4 font-medium">${p.name}</td>
+                  <td class="py-3 px-4 text-gray-400">${safeCode}</td>
+                  <td class="py-3 px-4"><svg id="${barcodeId}"></svg></td>
+                  <td class="py-3 px-4 text-gray-300">$${parseFloat(costPrice).toLocaleString()}</td>
+                  <td class="py-3 px-4 text-red-400">$${parseFloat(p.price).toLocaleString()}</td>
+                  <td class="py-3 px-4 font-bold">${p.stock}</td>
+                  <td class="py-3 px-4 text-center space-x-1">
+                      <button onclick="promptEditProduct(${p.id})" class="bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded text-xs text-white" title="Editar Producto"><i class="fa-solid fa-pen"></i></button>
+                      <button onclick="promptAdjustment(${p.id})" class="bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded text-xs text-white font-medium">Stock</button>
+                      <button onclick="printSingleBarcode('${safeCode}', '${p.name.replace(/'/g, "\'")}', ${p.price})" class="bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded text-xs text-white"><i class="fa-solid fa-print"></i></button>
+                  </td>
+              `;
+              fragment.appendChild(tr);
+
+              setTimeout(() => {
+                  try {
+                      JsBarcode(`#${barcodeId}`, safeCode, { format: "CODE128", width: 1.1, height: 28, displayValue: true, fontSize: 9 });
+                  } catch(e) {}
+              }, 100);
+          });
+          tbody.appendChild(fragment);
+      }
+
+      async function promptEditProduct(productId) {
+          const product = products.find(p => p.id === productId);
+          if(!product) return;
+
+          const name = prompt('Nombre del producto:', product.name);
+          if (!name) return;
+          const code = prompt('Código de barras / SKU:', product.code || '') || '';
+          const cost_price = parseFloat(prompt('Costo de adquisición/compra ($):', product.cost_price || 0)) || 0;
+          const price = parseFloat(prompt('Precio de venta ($):', product.price));
+          const stock = parseInt(prompt('Stock actual:', product.stock));
+          const image_url = prompt('URL de la imagen del producto:', product.image_url || '') || '';
+
+          if (isNaN(price) || isNaN(stock)) return alert('Datos numéricos inválidos.');
+
+          try {
+              const { error } = await supabaseClient.from('products').update({ name, code: code.trim(), cost_price, price, stock, image_url: image_url.trim() }).eq('id', productId);
+              if (error) throw error;
+              alert('¡Producto actualizado con éxito!');
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al actualizar el producto en Supabase.');
+          }
+      }
+
+      function printSingleBarcode(code, name, price) {
+          const ticketDiv = document.getElementById('printable-ticket');
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; padding: 2mm; width: 50mm;">
+                  <h4 style="margin:0 0 2mm 0; font-size:11px;"><b>${name}</b></h4>
+                  <p style="margin:0 0 3mm 0; font-size:10px;">Precio: $${parseFloat(price).toLocaleString()}</p>
+                  <svg id="print-barcode-single"></svg>
+              </div>
+          `;
+          try {
+              JsBarcode("#print-barcode-single", code, { format: "CODE128", width: 1.2, height: 35, displayValue: true, fontSize: 10 });
+          } catch(e) {}
+          window.print();
+      }
+
+      function renderCustomerListForHistory() {
+          const container = document.getElementById('customer-list-buttons');
+          if(!container) return;
+          container.innerHTML = '';
+          if(customers.length === 0) {
+              container.innerHTML = '<p class="text-xs text-gray-500">No hay clientes.</p>';
+              return;
+          }
+          customers.forEach(c => {
+              const btn = document.createElement('button');
+              btn.className = 'w-full text-left bg-gray-800 hover:bg-gray-700 p-2.5 rounded text-sm font-medium transition border border-gray-700 flex justify-between items-center';
+              btn.innerHTML = `<span>${c.name}</span> <i class="fa-solid fa-chevron-right text-xs text-gray-500"></i>`;
+              btn.onclick = () => loadCustomerPurchases(c);
+              container.appendChild(btn);
+          });
+      }
+
+      async function loadCustomerPurchases(customer) {
+          currentSelectedCustomer = customer;
+          document.getElementById('selected-customer-title').innerText = `Historial: ${customer.name}`;
+          document.getElementById('btn-edit-selected-customer').classList.remove('hidden');
+
+          const tbody = document.getElementById('customer-purchases-body');
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-400">Cargando compras...</td></tr>';
+
+          try {
+              const { data, error } = await supabaseClient.from('sales').select('*').eq('customer_id', customer.id).order('date', { ascending: false });
+              if(error) throw error;
+
+              if(!data || data.length === 0) {
+                  tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">Este cliente no registra compras aún.</td></tr>';
+                  return;
+              }
+
+              tbody.innerHTML = '';
+              data.forEach(sale => {
+                  const tr = document.createElement('tr');
+                  tr.className = 'border-b border-gray-800';
+                  const fechaFormateada = new Date(sale.date).toLocaleString();
+                  tr.innerHTML = `
+                      <td class="py-2 px-3 text-gray-300">${fechaFormateada}</td>
+                      <td class="py-2 px-3 text-gray-400">${sale.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</td>
+                      <td class="py-2 px-3 font-bold text-red-400">$${parseFloat(sale.total).toLocaleString()}</td>
+                      <td class="py-2 px-3 text-center">
+                          <button onclick='reprintCustomerSale(${JSON.stringify(sale)}, ${JSON.stringify(customer)})' class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs text-white"><i class="fa-solid fa-print"></i> Imprimir</button>
+                      </td>
+                  `;
+                  tbody.appendChild(tr);
+              });
+          } catch(e) {
+              console.error(e);
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-400">Error al cargar historial.</td></tr>';
+          }
+      }
+
+      async function editCurrentSelectedCustomer() {
+          if(!currentSelectedCustomer) return;
+          const name = prompt('Nombre o Razón Social:', currentSelectedCustomer.name);
+          if(!name) return;
+          const phone = prompt('Teléfono:', currentSelectedCustomer.phone || '');
+          const cedula = prompt('Cédula:', currentSelectedCustomer.cedula || '');
+          const nit = prompt('NIT:', currentSelectedCustomer.nit || '');
+          const address = prompt('Dirección fiscal/comercial:', currentSelectedCustomer.address || '');
+
+          try {
+              const { error } = await supabaseClient.from('customers').update({ name, phone, cedula, nit, address }).eq('id', currentSelectedCustomer.id);
+              if(error) throw error;
+              alert('¡Cliente actualizado con éxito!');
+              await fetchCustomers();
+              const updated = customers.find(c => c.id === currentSelectedCustomer.id);
+              if(updated) loadCustomerPurchases(updated);
+          } catch(e) {
+              console.error(e);
+              alert('Error al actualizar el cliente en Supabase.');
+          }
+      }
+
+      function reprintCustomerSale(sale, customer) {
+          const items = sale.items_snapshot || [{ name: 'Compra General POS', price: sale.total, qty: 1 }];
+          printSaleTicket(sale, items, customer);
+      }
+
+      function registerCashMovement() {
+          const val = parseFloat(prompt('Ingrese monto del movimiento (positivo para ingreso extra, negativo para gasto/retiro de caja):'));
+          if(isNaN(val)) return;
+          cashMovements += val;
+          alert(`Movimiento registrado. Ajuste acumulado en caja: $${cashMovements.toLocaleString()}`);
+          calculateClosingPreview();
+      }
+
+      function exportSalesToCSV() {
+          if(salesHistory.length === 0) return alert('No hay ventas para exportar.');
+          let csv = 'ID Venta,Fecha,Metodo Pago,Subtotal,Descuento,IVA,Total\n';
+          salesHistory.forEach(s => {
+              csv += `"${s.id}","${s.date}","${s.payment_method}","${s.subtotal || 0}","${s.discount || 0}","${s.vat_amount || 0}","${s.total}"\n`;
+          });
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.setAttribute('href', url);
+          a.setAttribute('download', `ventas_kev_nay_${new Date().toISOString().slice(0,10)}.csv`);
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+      }
+
+      function calculateClosingPreview() {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash').value) || 0;
+          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const totalSales = cashSales + cardSales;
+          const expectedCash = initialCash + cashSales + cashMovements;
+
+          let totalCost = 0;
+          salesHistory.forEach(s => {
+              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+                  s.items_snapshot.forEach(item => {
+                      const itemCost = item.cost_price || 0;
+                      totalCost += (itemCost * (item.qty || 1));
+                  });
+              }
+          });
+          const grossProfit = totalSales - totalCost;
+          const profitMargin = totalSales > 0 ? ((grossProfit / totalSales) * 100).toFixed(1) : 0;
+
+          document.getElementById('prev-cash-val').innerText = `$${cashSales.toLocaleString()}`;
+          document.getElementById('prev-card-val').innerText = `$${cardSales.toLocaleString()}`;
+          document.getElementById('prev-mov-val').innerText = `$${cashMovements.toLocaleString()}`;
+          document.getElementById('prev-expected-val').innerText = `$${expectedCash.toLocaleString()}`;
+          document.getElementById('prev-cost-val').innerText = `$${totalCost.toLocaleString()}`;
+          document.getElementById('prev-profit-val').innerText = `$${grossProfit.toLocaleString()} (${profitMargin}%)`;
+          document.getElementById('prev-total-val').innerText = `$${totalSales.toLocaleString()}`;
+      }
+
+      function renderClosingSalesTable() {
+          const tbody = document.getElementById('closing-sales-list');
+          if(!tbody) return;
+          if(salesHistory.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas.</td></tr>';
+              return;
+          }
+          tbody.innerHTML = '';
+          salesHistory.forEach(s => {
+              const tr = document.createElement('tr');
+              tr.innerHTML = `
+                  <td class="py-2 px-2 text-gray-400">#${String(s.id).slice(-6)}</td>
+                  <td class="py-2 px-2 text-gray-300">${new Date(s.date).toLocaleTimeString()}</td>
+                  <td class="py-2 px-2 text-gray-300">${s.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</td>
+                  <td class="py-2 px-2 font-bold text-red-400">$${parseFloat(s.total).toLocaleString()}</td>
+              `;
+              tbody.appendChild(tr);
+          });
+      }
+
+      async function generateCashClosingReport() {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash').value) || 0;
+          const actualCash = parseFloat(document.getElementById('closing-actual-cash').value) || 0;
+          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const totalSales = cashSales + cardSales;
+          const expectedCash = initialCash + cashSales + cashMovements;
+          const difference = actualCash - expectedCash;
+
+          let totalCost = 0;
+          salesHistory.forEach(s => {
+              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+                  s.items_snapshot.forEach(item => {
+                      totalCost += ((item.cost_price || 0) * (item.qty || 1));
+                  });
+              }
+          });
+          const grossProfit = totalSales - totalCost;
+
+          const closingData = { initial_cash: initialCash, total_sales: totalSales, cash_sales: cashSales, card_sales: cardSales, expected_cash: expectedCash, actual_cash: actualCash, difference };
+
+          try {
+              if(supabaseClient) {
+                  await supabaseClient.from('cash_closings').insert([closingData]);
+              }
+
+              const ticketDiv = document.getElementById('printable-ticket');
+              ticketDiv.innerHTML = `
+                  <div style="text-align: center; margin-bottom: 6px;">
+                      <h3 style="margin:0; font-size:13px;"><b>KEV NAY - CIERRE CAJA</b></h3>
+                      <p style="margin:1px 0; font-size:9px;">${new Date().toLocaleString()}</p>
+                  </div>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Efectivo Inicial: $${initialCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Ventas Efectivo: $${cashSales.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Movimientos Caja: $${cashMovements.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Ventas Tarjeta: $${cardSales.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Ventas Totales: $${totalSales.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Costo Ventas: $${totalCost.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Utilidad Bruta: $${grossProfit.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Efectivo Esperado: $${expectedCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Efectivo Real: $${actualCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Diferencia: $${difference.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="text-align: center; margin-top: 6px; font-size:9px;">¡Cierre financiero registrado!</p>
+              `;
+              window.print();
+          } catch (err) {
+              console.error(err);
+              alert('Error al registrar el cierre de caja.');
+          }
+      }
+
+      async function promptAdjustment(productId) {
+          const product = products.find(p => p.id === productId);
+          const newStockStr = prompt(`Nuevo stock físico para "${product.name}":`, product.stock);
+          if (newStockStr === null) return;
+          const newStock = parseInt(newStockStr);
+          if (isNaN(newStock) || newStock < 0) return alert('Valor inválido.');
+
+          try {
+              const { error } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', productId);
+              if (error) throw error;
+              product.stock = newStock;
+              renderInventoryTable();
+              renderProductGrid();
+              alert('Stock actualizado correctamente.');
+          } catch (err) {
+              console.error(err);
+              alert('No se pudo actualizar el stock en Supabase.');
+          }
+      }
+
+      async function openNewProductModal() {
+          const name = prompt('Nombre del producto:');
+          if (!name) return;
+          let code = prompt('Código de barras / SKU (Déjalo vacío para generarlo automáticamente):');
+          if(!code || code.trim() === '') {
+              code = '770' + Math.floor(100000 + Math.random() * 900000);
+          }
+          const cost_price = parseFloat(prompt('Costo de adquisición / compra ($):') || 0);
+          const price = parseFloat(prompt('Precio de venta ($):'));
+          const stock = parseInt(prompt('Stock inicial:'));
+          const image_url = prompt('URL de la imagen del producto (Opcional):') || '';
+
+          if (!name || isNaN(price) || isNaN(stock)) return alert('Datos incompletos.');
+
+          try {
+              const { error } = await supabaseClient.from('products').insert([{ name, code: code.trim(), cost_price, price, stock, image_url: image_url.trim() }]);
+              if (error) throw error;
+              alert('¡Producto creado con éxito!');
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al guardar el producto en Supabase.');
+          }
+      }
+
+      async function openNewCustomerModal() {
+          const name = prompt('Nombre completo o Razón Social del cliente:');
+          if (!name) return;
+          const phone = prompt('Número de Teléfono:');
+          const cedula = prompt('Número de Cédula:');
+          const nit = prompt('Número de NIT:');
+          const address = prompt('Dirección fiscal/comercial:');
+
+          try {
+              const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }]);
+              if (error) throw error;
+              alert('Cliente registrado con éxito.');
+              await fetchCustomers();
+          } catch (err) {
+              console.error(err);
+              alert('Error al guardar el cliente en Supabase.');
+          }
+      }
+
+      window.onload = () => {
+          fetchProducts();
+          fetchCustomers();
+          fetchSalesHistory();
+      };
+  </script>
+
+<script>
+// PWA
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', (e)=>{e.preventDefault();deferredPrompt=e;const b=document.getElementById('btn-instalar-pwa');if(b)b.style.display='block';});
+async function instalarPWA(){if(!deferredPrompt){alert('Ya está instalada o usa menú navegador > Instalar');return;}deferredPrompt.prompt();const {outcome}=await deferredPrompt.userChoice;deferredPrompt=null;if(outcome==='accepted') alert('¡App instalada!');}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(r=>console.log('SW',r.scope)).catch(e=>console.log(e));});}
+
+// LOGIN SEGURO - HASH de KevNay#2026!
+const HASH_AUTORIZADO="350cf8a7407736f312321f52159a47f8e620f10b820fd7f614a78755a8fde1e6";
+let intentosFallidos=parseInt(localStorage.getItem('kevnay_intentos')||'0');
+let bloqueoHasta=parseInt(localStorage.getItem('kevnay_bloqueo')||'0');
+async function sha256(t){const b=new TextEncoder().encode(t);const h=await crypto.subtle.digest('SHA-256',b);return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+function togglePass(){const i=document.getElementById('login-pass');i.type=i.type==='password'?'text':'password';}
+async function intentarLogin(){
+  const input=document.getElementById('login-pass');const err=document.getElementById('login-error');const btn=document.getElementById('btn-login');
+  if(Date.now()<bloqueoHasta){const s=Math.ceil((bloqueoHasta-Date.now())/1000);err.textContent=`⛔ Bloqueado ${s}s`;err.classList.add('show');return;}
+  if(!input.value.trim()){err.textContent='⚠️ Ingresa tu clave';err.classList.add('show');return;}
+  btn.textContent='Verificando...';btn.disabled=true;
+  try{
+    const hash=await sha256(input.value.trim());
+    if(hash===HASH_AUTORIZADO){
+      localStorage.setItem('kevnay_auth', JSON.stringify({ok:true,time:Date.now()}));
+      localStorage.removeItem('kevnay_intentos');localStorage.removeItem('kevnay_bloqueo');
+      document.getElementById('login-overlay').classList.add('hidden');setTimeout(()=>{document.getElementById('login-overlay').style.display='none';},400);
+      input.value='';
+    }else{
+      intentosFallidos++;localStorage.setItem('kevnay_intentos',intentosFallidos);
+      if(intentosFallidos>=5){bloqueoHasta=Date.now()+30000;localStorage.setItem('kevnay_bloqueo',bloqueoHasta);err.textContent='⛔ Demasiados intentos. Bloqueado 30s';}
+      else{err.textContent=`❌ Clave incorrecta. Intento ${intentosFallidos}/5`;}
+      err.classList.add('show');input.value='';input.focus();
+    }
+  }catch(e){err.textContent='Error seguridad';err.classList.add('show');}
+  btn.textContent='🔐 Ingresar al POS';btn.disabled=false;
+}
+function verificarSesion(){
+  const s=localStorage.getItem('kevnay_auth');
+  if(!s) return false;
+  try{const d=JSON.parse(s);if(Date.now()-d.time<12*60*60*1000 && d.ok){document.getElementById('login-overlay').style.display='none';return true;}}catch{}
+  return false;
+}
+function cerrarSesion(){if(confirm('¿Cerrar sesión POS?')){localStorage.removeItem('kevnay_auth');location.reload();}}
+document.addEventListener('DOMContentLoaded',()=>{
+  verificarSesion();
+  // agregar botón cerrar sesión al header
+  const nav=document.querySelector('header nav');
+  if(nav){const btn=document.createElement('button');btn.className='px-4 py-2 bg-gray-900 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600';btn.innerHTML='<i class="fa-solid fa-right-from-bracket mr-2"></i>Salir';btn.onclick=cerrarSesion;nav.appendChild(btn);}
+});
+</script>
+
+</body>
+</html>
+
