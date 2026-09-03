@@ -10,6 +10,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- JsBarcode para códigos de barras -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <!-- HTML5-QRCode para escáner WebRTC con cámara de iPhone -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <!-- FontAwesome para iconos -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
@@ -50,6 +52,19 @@
 .toggle-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.06);border:1px solid #374151;width:32px;height:32px;border-radius:8px;cursor:pointer;display:grid;place-items:center}
 .login-error{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;font-size:.85rem;font-weight:600}
 .login-error.show{display:block}
+
+/* Estilos personalizados del escáner */
+#qr-reader video {
+    object-fit: cover !important;
+    border-radius: 0.75rem;
+}
+#qr-reader__scan_region {
+    background: #000;
+}
+#qr-reader__dashboard {
+    padding: 8px !important;
+    color: #fff !important;
+}
 </style>
 </head>
 
@@ -69,6 +84,7 @@
     <div style="margin-top:14px;font-size:.78rem;color:#9ca3af;line-height:1.4;background:rgba(255,255,255,0.03);border:1px solid #374151;border-radius:10px;padding:10px 12px">🔒 Clave protegida con hash SHA-256. No está en texto plano.<br>💡 Puedes instalar esta app: menú navegador > Instalar app.<br><br><button onclick="instalarPWA()" id="btn-instalar-pwa" style="display:none;width:100%;margin-top:8px;padding:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:8px">📲 Instalar app</button></div>
   </div>
 </div>
+
 <body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
 
   <!-- Navbar -->
@@ -92,8 +108,13 @@
       <!-- VISTA POS -->
       <section id="view-pos" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div class="lg:col-span-2 bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col h-[75vh]">
-              <div class="mb-4 flex gap-3">
+              <div class="mb-4 flex gap-2">
                   <input type="text" id="search-product" placeholder="Buscar producto o escanear código..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500" oninput="filterProducts(this.value)">
+                  <!-- Botón para activar el escáner de cámara en el POS -->
+                  <button onclick="openCameraScanner('pos')" class="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 whitespace-nowrap" title="Escanear con cámara iPhone">
+                      <i class="fa-solid fa-camera"></i>
+                      <span class="hidden sm:inline">Escanear</span>
+                  </button>
               </div>
               <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto flex-1 pr-2"></div>
           </div>
@@ -182,9 +203,11 @@
               <p class="text-xs text-gray-400 mt-1">Escribe cualquier código o texto para generar y visualizar barras al instante.</p>
           </div>
           <div class="space-y-4">
-              <div>
-                  <label class="block text-xs text-gray-400 mb-2 font-medium">Texto o Código SKU:</label>
+              <div class="flex gap-2">
                   <input type="text" id="live-barcode-input" placeholder="Ej. KEVNAY-001" value="KEVNAY-12345" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-center text-lg text-white focus:outline-none focus:border-red-500" oninput="generateLiveBarcode()">
+                  <button onclick="openCameraScanner('generator')" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg text-white font-bold transition flex items-center gap-1" title="Escanear para probar">
+                      <i class="fa-solid fa-camera"></i>
+                  </button>
               </div>
               <div class="flex justify-center gap-4 text-xs">
                   <div>
@@ -307,6 +330,30 @@
 
   </main>
 
+  <!-- MODAL DE CÁMARA PARA ESCANEAR CÓDIGOS DE BARRAS (HTML5-QRCode) -->
+  <div id="scanner-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-gray-800 border border-gray-700 rounded-2xl p-5 max-w-md w-full shadow-2xl flex flex-col items-center">
+          <div class="flex justify-between items-center w-full mb-3 pb-2 border-b border-gray-700">
+              <h3 class="font-bold text-lg text-white flex items-center gap-2">
+                  <i class="fa-solid fa-barcode text-red-500"></i> Escáner de Código
+              </h3>
+              <button onclick="closeCameraScanner()" class="text-gray-400 hover:text-white text-xl p-1">
+                  <i class="fa-solid fa-xmark"></i>
+              </button>
+          </div>
+          
+          <div id="qr-reader" class="w-full rounded-xl overflow-hidden bg-black min-h-[260px]"></div>
+
+          <p class="text-xs text-gray-400 mt-3 text-center">
+              Apunta con la cámara trasera de tu iPhone 13 al código de barras.
+          </p>
+
+          <button onclick="closeCameraScanner()" class="mt-4 w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-xl transition">
+              Cancelar
+          </button>
+      </div>
+  </div>
+
   <!-- Contenedor Único y Visible para Impresión (Ticket 50mm) -->
   <div id="printable-ticket" style="display:none;"></div>
 
@@ -328,6 +375,100 @@
       let salesHistory = [];
       let cashMovements = 0;
       let currentSelectedCustomer = null;
+
+      // Variables Globales para el Escáner de Cámara
+      let html5QrCodeScanner = null;
+      let currentScannerTarget = 'pos'; // 'pos' | 'generator' | callback function
+
+      function playBeepSound() {
+          try {
+              const ctx = new (window.AudioContext || window.webkitAudioContext)();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(880, ctx.currentTime); // Tono agudo 880Hz
+              gain.gain.setValueAtTime(0.1, ctx.currentTime);
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start();
+              osc.stop(ctx.currentTime + 0.15); // Duración 150ms
+          } catch(e) {
+              console.log('Audio no soportado o bloqueado:', e);
+          }
+      }
+
+      async function openCameraScanner(target = 'pos') {
+          currentScannerTarget = target;
+          const modal = document.getElementById('scanner-modal');
+          modal.classList.remove('hidden');
+
+          if (!html5QrCodeScanner) {
+              html5QrCodeScanner = new Html5Qrcode("qr-reader");
+          }
+
+          // Configuración WebRTC optimizada para iPhone 13 (cámara trasera)
+          const config = {
+              fps: 15,
+              qrbox: { width: 280, height: 160 }, // Rectángulo para códigos de barras 1D
+              aspectRatio: 1.0,
+              experimentalFeatures: {
+                  useBarCodeDetectorIfSupported: true
+              }
+          };
+
+          try {
+              // 'environment' fuerza la cámara trasera del iPhone
+              await html5QrCodeScanner.start(
+                  { facingMode: "environment" },
+                  config,
+                  onScanSuccess
+              );
+          } catch (err) {
+              console.error("Error al iniciar cámara:", err);
+              alert("No se pudo acceder a la cámara. Asegúrate de dar permisos de cámara en tu iPhone Safari/Chrome y usar una conexión HTTPS.");
+              closeCameraScanner();
+          }
+      }
+
+      function onScanSuccess(decodedText, decodedResult) {
+          playBeepSound();
+          closeCameraScanner();
+
+          if (currentScannerTarget === 'pos') {
+              const searchInput = document.getElementById('search-product');
+              if (searchInput) {
+                  searchInput.value = decodedText;
+                  filterProducts(decodedText);
+
+                  // Intentar agregar al carrito si existe coincidencia exacta
+                  const exactMatch = products.find(p => p.code && p.code.trim().toLowerCase() === decodedText.trim().toLowerCase());
+                  if (exactMatch && exactMatch.stock > 0) {
+                      addToCart(exactMatch.id);
+                  }
+              }
+          } else if (currentScannerTarget === 'generator') {
+              const textInput = document.getElementById('live-barcode-input');
+              if (textInput) {
+                  textInput.value = decodedText;
+                  generateLiveBarcode();
+              }
+          } else if (typeof currentScannerTarget === 'function') {
+              currentScannerTarget(decodedText);
+          }
+      }
+
+      async function closeCameraScanner() {
+          const modal = document.getElementById('scanner-modal');
+          modal.classList.add('hidden');
+
+          if (html5QrCodeScanner) {
+              try {
+                  await html5QrCodeScanner.stop();
+              } catch (err) {
+                  console.log("Escáner detenido.");
+              }
+          }
+      }
 
       function getAdminPassword() {
           return localStorage.getItem('kev_nay_admin_pass') || '12345';
@@ -468,7 +609,7 @@
           const grid = document.getElementById('product-grid');
           if(!grid) return;
           grid.innerHTML = '';
-          const filtered = products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()) || (p.code && p.code.includes(query)));
+          const filtered = products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()) || (p.code && p.code.toLowerCase().includes(query.toLowerCase())));
 
           if (filtered.length === 0) {
               grid.innerHTML = '<p class="text-gray-500 col-span-full text-center py-4">No se encontraron productos.</p>';
@@ -663,7 +804,7 @@
       function printSaleTicket(sale, items, customer) {
           const ticketDiv = document.getElementById('printable-ticket');
           let itemsHtml = items.map(i => `
-              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+              <div style="display:flex; justify-between; margin-bottom:2px;">
                   <span>${i.qty}x ${i.name || i.product_name || 'Prod'}</span>
                   <span>$${((i.price || 0) * (i.qty || 1)).toLocaleString()}</span>
               </div>
@@ -1013,9 +1154,17 @@
       }
 
       async function openNewProductModal() {
+          // Opción para ingresar manual o mediante escaneo de cámara
+          openCameraScanner((scannedCode) => {
+              createProductWithCode(scannedCode);
+          });
+      }
+
+      async function createProductWithCode(initialCode = '') {
           const name = prompt('Nombre del producto:');
           if (!name) return;
-          let code = prompt('Código de barras / SKU (Déjalo vacío para generarlo automáticamente):');
+
+          let code = prompt('Código de barras / SKU:', initialCode);
           if(!code || code.trim() === '') {
               code = '770' + Math.floor(100000 + Math.random() * 900000);
           }
@@ -1114,4 +1263,5 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 </body>
 </html>
+
 
