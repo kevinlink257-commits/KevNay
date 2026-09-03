@@ -2,14 +2,9 @@
 
 Sistema POS con escáner de código de barras, inventario, clientes y cierre de caja.
 
-## Login seguro SHA-256
-Clave actual: KevNay#2026! (solo hash en código)
+## Login seguro
+con inicio sesión
+Ocultamiento de clave
 
-## Archivos PWA
-- index.html
-- manifest.json
-- sw.js
-- iconos
-
-## Deploy Netlify
+## Deploy vercel
 Publish dir: ./  Build command: vacío
