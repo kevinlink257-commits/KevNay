@@ -24,13 +24,21 @@
               top: 0;
               width: 50mm;
               font-family: 'Courier New', Courier, monospace;
-              font-size: 11px;
+              font-size: 10px;
               color: black !important;
               background: white !important;
               padding: 4mm;
               display: block !important;
               text-align: left;
               line-height: 1.2;
+              page-break-inside: avoid;
+              page-break-after: avoid;
+              margin: 0;
+              box-sizing: border-box;
+          }
+          @page {
+              size: auto;
+              margin: 0mm;
           }
       }
   </style>
@@ -76,12 +84,15 @@
       <p style="color:#9ca3af;font-size:.85rem;text-align:center">POS & Cloud Hub<br><small>Acceso seguro - Sistema de caja</small></p>
     </div>
     <div class="login-field">
+      <input type="text" id="login-username" placeholder="Usuario" autocomplete="username" onkeydown="if(event.key==='Enter') intentarLogin()">
+    </div>
+    <div class="login-field">
       <input type="password" id="login-pass" placeholder="••••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') intentarLogin()">
       <button class="toggle-eye" onclick="togglePass()" type="button">👁️</button>
     </div>
     <button style="width:100%;padding:14px;background:#dc2626;color:white;border-radius:12px;font-weight:700;border:none;cursor:pointer" onclick="intentarLogin()" id="btn-login">🔐 Ingresar al POS</button>
     <div class="login-error" id="login-error"></div>
-    <div style="margin-top:14px;font-size:.78rem;color:#9ca3af;line-height:1.4;background:rgba(255,255,255,0.03);border:1px solid #374151;border-radius:10px;padding:10px 12px">🔒 Clave protegida con hash SHA-256. No está en texto plano.<br>💡 Puedes instalar esta app: menú navegador > Instalar app.<br><br><button onclick="instalarPWA()" id="btn-instalar-pwa" style="display:none;width:100%;margin-top:8px;padding:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:8px">📲 Instalar app</button></div>
+    <div style="margin-top:14px;font-size:.78rem;color:#9ca3af;line-height:1.4;background:rgba(255,255,255,0.03);border:1px solid #374151;border-radius:10px;padding:10px 12px">🔒 Usuario y contraseña protegidos con hash SHA-256.<br>💡 Puedes instalar esta app: menú navegador > Instalar app.<br><br><button onclick="instalarPWA()" id="btn-instalar-pwa" style="display:none;width:100%;margin-top:8px;padding:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:8px">📲 Instalar app</button></div>
   </div>
 </div>
 
@@ -93,12 +104,13 @@
           <i class="fa-solid fa-scorpion text-red-500 text-2xl"></i>
           <h1 class="text-xl font-bold tracking-wider">KEV NAY <span class="text-xs text-red-400 font-normal">POS & Cloud Hub</span></h1>
       </div>
-      <nav class="flex space-x-2 flex-wrap gap-y-2">
+      <nav class="flex space-x-2 flex-wrap gap-y-2" id="main-nav">
           <button onclick="switchTab('pos')" id="btn-pos" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium transition hover:bg-red-500"><i class="fa-solid fa-cash-register mr-2"></i>Caja / POS</button>
           <button onclick="requestInventoryAccess()" id="btn-inventory" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-boxes-stacked mr-2"></i>Inventario</button>
           <button onclick="switchTab('generator')" id="btn-generator" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-barcode mr-2"></i>Generador Rápido</button>
           <button onclick="switchTab('customers')" id="btn-customers" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-users mr-2"></i>Clientes & Historial</button>
           <button onclick="switchTab('closing')" id="btn-closing" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes & Cierre</button>
+          <button onclick="switchTab('users')" id="btn-users" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600 hidden"><i class="fa-solid fa-user-cog mr-2"></i>Usuarios</button>
       </nav>
   </header>
 
@@ -110,7 +122,6 @@
           <div class="lg:col-span-2 bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col h-[75vh]">
               <div class="mb-4 flex gap-2">
                   <input type="text" id="search-product" placeholder="Buscar producto o escanear código..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500" oninput="filterProducts(this.value)">
-                  <!-- Botón para activar el escáner de cámara en el POS -->
                   <button onclick="openCameraScanner('pos')" class="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded-lg transition flex items-center gap-2 whitespace-nowrap" title="Escanear con cámara iPhone">
                       <i class="fa-solid fa-camera"></i>
                       <span class="hidden sm:inline">Escanear</span>
@@ -138,8 +149,8 @@
                       <span id="cart-subtotal">$0.00</span>
                   </div>
                   <div class="flex justify-between text-sm items-center">
-                      <span>Descuento ($):</span>
-                      <input type="number" id="cart-discount" value="0" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                      <span>Descuento (%):</span>
+                      <input type="number" id="cart-discount" value="0" min="0" max="100" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
                   </div>
                   <div class="flex justify-between text-sm items-center">
                       <span>IVA (%):</span>
@@ -149,7 +160,6 @@
                       <span>Total:</span>
                       <span id="cart-total" class="text-red-400">$0.00</span>
                   </div>
-                  <!-- Calculadora rápida de Vuelto -->
                   <div class="bg-gray-900 p-2 rounded border border-gray-700 text-xs space-y-1">
                       <div class="flex justify-between items-center">
                           <span class="text-gray-400">Efectivo Recibido:</span>
@@ -174,13 +184,14 @@
               <h2 class="text-xl font-bold"><i class="fa-solid fa-boxes-stacked mr-2"></i>Control de Inventario, Costos & Códigos de Barras</h2>
               <div class="flex space-x-2">
                   <button onclick="openNewProductModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-plus mr-2"></i>Nuevo Producto</button>
-                  <button onclick="changeAdminPassword()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-key mr-2"></i>Contraseña</button>
+                  <button onclick="printSelectedBarcodes()" class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Seleccionados</button>
               </div>
           </div>
           <div class="overflow-x-auto">
               <table class="w-full text-left border-collapse">
                   <thead>
                       <tr class="border-b border-gray-700 text-gray-400 text-sm">
+                          <th class="py-3 px-4"><input type="checkbox" id="select-all-products" onchange="toggleSelectAllProducts()"></th>
                           <th class="py-3 px-4">Imagen</th>
                           <th class="py-3 px-4">Producto</th>
                           <th class="py-3 px-4">SKU / Código</th>
@@ -219,10 +230,19 @@
                           <option value="CODE39">CODE 39</option>
                       </select>
                   </div>
+                  <div>
+                      <label class="text-gray-400 block mb-1">Acciones:</label>
+                      <button onclick="addToBarcodeList()" class="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded text-white font-medium"><i class="fa-solid fa-plus mr-1"></i>Agregar a lista</button>
+                  </div>
               </div>
               <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 flex flex-col items-center justify-center space-y-4">
                   <svg id="live-barcode-svg" class="max-w-full bg-white p-3 rounded"></svg>
                   <button onclick="printLiveBarcode()" class="bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Código de Barras</button>
+              </div>
+              <div class="bg-gray-900 p-4 rounded-xl border border-gray-700 text-left">
+                  <h3 class="font-bold text-sm mb-2 text-gray-300"><i class="fa-solid fa-list mr-2"></i>Lista de Códigos Pendientes</h3>
+                  <div id="barcode-list" class="space-y-1 max-h-40 overflow-y-auto"></div>
+                  <button onclick="printAllBarcodeList()" class="mt-2 w-full bg-green-600 hover:bg-green-500 py-2 rounded font-bold text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Todos los Códigos</button>
               </div>
           </div>
       </section>
@@ -328,6 +348,27 @@
           </div>
       </section>
 
+      <!-- VISTA USUARIOS (SOLO ADMIN) -->
+      <section id="view-users" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto w-full space-y-6">
+          <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-user-cog mr-2"></i>Gestión de Usuarios</h2>
+              <button onclick="openNewUserModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-user-plus mr-2"></i>Nuevo Usuario</button>
+          </div>
+          <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                  <thead>
+                      <tr class="border-b border-gray-700 text-gray-400 text-sm">
+                          <th class="py-3 px-4">Usuario</th>
+                          <th class="py-3 px-4">Rol</th>
+                          <th class="py-3 px-4">Creado</th>
+                          <th class="py-3 px-4 text-center">Acciones</th>
+                      </tr>
+                  </thead>
+                  <tbody id="users-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
+              </table>
+          </div>
+      </section>
+
   </main>
 
   <!-- MODAL DE CÁMARA PARA ESCANEAR CÓDIGOS DE BARRAS (HTML5-QRCode) -->
@@ -369,16 +410,23 @@
           console.error('Error inicializando Supabase:', e);
       }
 
+      // Hash de la contraseña administrador
+      const ADMIN_PASSWORD_HASH = '60fe74406e7f353ed979f350f2fbb6a2e8690a5fa7d1b0c32983d1d8b3f95f67';
+
+      // Variables globales
       let products = [];
       let customers = [];
+      let users = [];
       let cart = [];
       let salesHistory = [];
       let cashMovements = 0;
       let currentSelectedCustomer = null;
+      let currentUser = null;
+      let barcodeList = [];
 
       // Variables Globales para el Escáner de Cámara
       let html5QrCodeScanner = null;
-      let currentScannerTarget = 'pos'; // 'pos' | 'generator' | callback function
+      let currentScannerTarget = 'pos';
 
       function playBeepSound() {
           try {
@@ -386,12 +434,12 @@
               const osc = ctx.createOscillator();
               const gain = ctx.createGain();
               osc.type = 'sine';
-              osc.frequency.setValueAtTime(880, ctx.currentTime); // Tono agudo 880Hz
+              osc.frequency.setValueAtTime(880, ctx.currentTime);
               gain.gain.setValueAtTime(0.1, ctx.currentTime);
               osc.connect(gain);
               gain.connect(ctx.destination);
               osc.start();
-              osc.stop(ctx.currentTime + 0.15); // Duración 150ms
+              osc.stop(ctx.currentTime + 0.15);
           } catch(e) {
               console.log('Audio no soportado o bloqueado:', e);
           }
@@ -406,10 +454,9 @@
               html5QrCodeScanner = new Html5Qrcode("qr-reader");
           }
 
-          // Configuración WebRTC optimizada para iPhone 13 (cámara trasera)
           const config = {
               fps: 15,
-              qrbox: { width: 280, height: 160 }, // Rectángulo para códigos de barras 1D
+              qrbox: { width: 280, height: 160 },
               aspectRatio: 1.0,
               experimentalFeatures: {
                   useBarCodeDetectorIfSupported: true
@@ -417,7 +464,6 @@
           };
 
           try {
-              // 'environment' fuerza la cámara trasera del iPhone
               await html5QrCodeScanner.start(
                   { facingMode: "environment" },
                   config,
@@ -439,8 +485,6 @@
               if (searchInput) {
                   searchInput.value = decodedText;
                   filterProducts(decodedText);
-
-                  // Intentar agregar al carrito si existe coincidencia exacta
                   const exactMatch = products.find(p => p.code && p.code.trim().toLowerCase() === decodedText.trim().toLowerCase());
                   if (exactMatch && exactMatch.stock > 0) {
                       addToCart(exactMatch.id);
@@ -460,7 +504,6 @@
       async function closeCameraScanner() {
           const modal = document.getElementById('scanner-modal');
           modal.classList.add('hidden');
-
           if (html5QrCodeScanner) {
               try {
                   await html5QrCodeScanner.stop();
@@ -470,31 +513,221 @@
           }
       }
 
-      function getAdminPassword() {
-          return localStorage.getItem('kev_nay_admin_pass') || '12345';
+      // ---------- Funciones de Autenticación y Usuarios ----------
+      async function sha256(t) {
+          const b = new TextEncoder().encode(t);
+          const h = await crypto.subtle.digest('SHA-256', b);
+          return Array.from(new Uint8Array(h)).map(x => x.toString(16).padStart(2, '0')).join('');
       }
 
-      function requestInventoryAccess() {
-          const pass = prompt('Módulo protegido. Ingrese la contraseña de Administrador:');
-          if (pass === null) return;
-          if (pass === getAdminPassword()) {
-              switchTab('inventory');
-          } else {
-              alert('Contraseña incorrecta.');
+      async function login(username, password) {
+          const hash = await sha256(password);
+
+          // Verificación directa para credenciales de administrador principal
+          if (username === 'admin' && hash === ADMIN_PASSWORD_HASH) {
+              currentUser = { id: 'admin-master', username: 'admin', role: 'admin' };
+              localStorage.setItem('kevnay_user', JSON.stringify(currentUser));
+              return true;
+          }
+
+          try {
+              const { data, error } = await supabaseClient
+                  .from('users')
+                  .select('*')
+                  .eq('username', username)
+                  .eq('password_hash', hash)
+                  .maybeSingle();
+              if (error) throw error;
+              if (data) {
+                  currentUser = { id: data.id, username: data.username, role: data.role };
+                  localStorage.setItem('kevnay_user', JSON.stringify(currentUser));
+                  return true;
+              }
+              return false;
+          } catch (e) {
+              console.error('Error login:', e);
+              return false;
           }
       }
 
-      function changeAdminPassword() {
-          const currentPass = prompt('Ingrese la contraseña actual:');
-          if (currentPass !== getAdminPassword()) return alert('Contraseña incorrecta.');
-          const newPass = prompt('Nueva contraseña de Administrador:');
-          if (!newPass) return;
-          localStorage.setItem('kev_nay_admin_pass', newPass.trim());
-          alert('¡Contraseña actualizada con éxito!');
+      function logout() {
+          localStorage.removeItem('kevnay_user');
+          currentUser = null;
+          document.getElementById('login-overlay').style.display = 'flex';
+          document.getElementById('login-overlay').classList.remove('hidden');
+          document.getElementById('login-username').value = '';
+          document.getElementById('login-pass').value = '';
+      }
+
+      function togglePass() {
+          const i = document.getElementById('login-pass');
+          i.type = i.type === 'password' ? 'text' : 'password';
+      }
+
+      async function intentarLogin() {
+          const usernameInput = document.getElementById('login-username');
+          const passInput = document.getElementById('login-pass');
+          const err = document.getElementById('login-error');
+          const btn = document.getElementById('btn-login');
+          const username = usernameInput.value.trim();
+          const password = passInput.value.trim();
+
+          if (!username || !password) {
+              err.textContent = '⚠️ Ingresa usuario y contraseña';
+              err.classList.add('show');
+              return;
+          }
+
+          btn.textContent = 'Verificando...';
+          btn.disabled = true;
+
+          const success = await login(username, password);
+          if (success) {
+              err.classList.remove('show');
+              document.getElementById('login-overlay').classList.add('hidden');
+              setTimeout(() => {
+                  document.getElementById('login-overlay').style.display = 'none';
+              }, 400);
+              
+              if (currentUser.role === 'admin') {
+                  document.getElementById('btn-users').classList.remove('hidden');
+              } else {
+                  document.getElementById('btn-users').classList.add('hidden');
+              }
+              
+              fetchProducts();
+              fetchCustomers();
+              fetchSalesHistory();
+          } else {
+              err.textContent = '❌ Usuario o contraseña incorrectos';
+              err.classList.add('show');
+              passInput.value = '';
+              passInput.focus();
+          }
+          btn.textContent = '🔐 Ingresar al POS';
+          btn.disabled = false;
+      }
+
+      function checkSession() {
+          const saved = localStorage.getItem('kevnay_user');
+          if (saved) {
+              try {
+                  const userData = JSON.parse(saved);
+                  if (userData && userData.id) {
+                      currentUser = userData;
+                      document.getElementById('login-overlay').style.display = 'none';
+                      if (currentUser.role === 'admin') {
+                          document.getElementById('btn-users').classList.remove('hidden');
+                      }
+                      return true;
+                  }
+              } catch(e) {}
+          }
+          return false;
+      }
+
+      // ---------- Gestión de Usuarios (solo admin) ----------
+      async function fetchUsers() {
+          if (!supabaseClient || !currentUser || currentUser.role !== 'admin') return;
+          try {
+              const { data, error } = await supabaseClient.from('users').select('*').order('username');
+              if (error) throw error;
+              users = data || [];
+              renderUsersTable();
+          } catch(e) {
+              console.error(e);
+          }
+      }
+
+      function renderUsersTable() {
+          const tbody = document.getElementById('users-table-body');
+          if (!tbody) return;
+          tbody.innerHTML = '';
+          if (users.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No hay usuarios registrados.</td></tr>';
+              return;
+          }
+          users.forEach(u => {
+              const tr = document.createElement('tr');
+              tr.className = 'border-b border-gray-700';
+              tr.innerHTML = `
+                  <td class="py-3 px-4 font-medium">${u.username}</td>
+                  <td class="py-3 px-4">${u.role === 'admin' ? '<span class="text-red-400">Administrador</span>' : '<span class="text-gray-300">Cajero</span>'}</td>
+                  <td class="py-3 px-4 text-gray-400">${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}</td>
+                  <td class="py-3 px-4 text-center space-x-2">
+                      <button onclick="editUserPrompt('${u.id}', '${u.username}', '${u.role}')" class="bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded text-xs text-white"><i class="fa-solid fa-pen"></i></button>
+                      <button onclick="deleteUser('${u.id}')" class="bg-red-700 hover:bg-red-600 px-2.5 py-1 rounded text-xs text-white"><i class="fa-solid fa-trash"></i></button>
+                  </td>
+              `;
+              tbody.appendChild(tr);
+          });
+      }
+
+      async function openNewUserModal() {
+          const username = prompt('Nombre de usuario:');
+          if (!username) return;
+          const password = prompt('Contraseña:');
+          if (!password) return;
+          const role = prompt('Rol (admin/cashier):', 'cashier').toLowerCase();
+          if (role !== 'admin' && role !== 'cashier') {
+              alert('Rol inválido. Use admin o cashier.');
+              return;
+          }
+          const password_hash = await sha256(password);
+          try {
+              const { error } = await supabaseClient.from('users').insert([{ username, password_hash, role }]);
+              if (error) throw error;
+              alert('Usuario creado con éxito.');
+              fetchUsers();
+          } catch(e) {
+              console.error(e);
+              alert('Error al crear usuario. Puede que ya exista.');
+          }
+      }
+
+      async function editUserPrompt(id, currentUsername, currentRole) {
+          const username = prompt('Nuevo nombre de usuario:', currentUsername);
+          if (!username) return;
+          const role = prompt('Rol (admin/cashier):', currentRole).toLowerCase();
+          if (role !== 'admin' && role !== 'cashier') {
+              alert('Rol inválido.');
+              return;
+          }
+          const newPassword = prompt('Nueva contraseña (dejar vacío para no cambiar):');
+          let updateData = { username, role };
+          if (newPassword && newPassword.trim() !== '') {
+              updateData.password_hash = await sha256(newPassword);
+          }
+          try {
+              const { error } = await supabaseClient.from('users').update(updateData).eq('id', id);
+              if (error) throw error;
+              alert('Usuario actualizado.');
+              fetchUsers();
+          } catch(e) {
+              console.error(e);
+              alert('Error al actualizar usuario.');
+          }
+      }
+
+      async function deleteUser(id) {
+          if (!confirm('¿Eliminar este usuario?')) return;
+          try {
+              const { error } = await supabaseClient.from('users').delete().eq('id', id);
+              if (error) throw error;
+              alert('Usuario eliminado.');
+              fetchUsers();
+          } catch(e) {
+              console.error(e);
+              alert('No se pudo eliminar.');
+          }
+      }
+
+      function requestInventoryAccess() {
+          switchTab('inventory');
       }
 
       function switchTab(tab) {
-          ['pos', 'inventory', 'generator', 'customers', 'closing'].forEach(t => {
+          ['pos', 'inventory', 'generator', 'customers', 'closing', 'users'].forEach(t => {
               const view = document.getElementById(`view-${t}`);
               if (view) view.classList.add('hidden');
               const btn = document.getElementById(`btn-${t}`);
@@ -518,12 +751,10 @@
               fetchCustomers();
               if(tab === 'customers') renderCustomerListForHistory();
           }
-          if(tab === 'closing') {
-              fetchSalesHistory();
-          }
+          if(tab === 'closing') fetchSalesHistory();
+          if(tab === 'users') fetchUsers();
       }
 
-      // Generador en tiempo real para la pestaña "Generador Rápido"
       function generateLiveBarcode() {
           const textInput = document.getElementById('live-barcode-input');
           const formatSelect = document.getElementById('live-barcode-format');
@@ -546,6 +777,39 @@
           }
       }
 
+      function addToBarcodeList() {
+          const input = document.getElementById('live-barcode-input');
+          const val = input.value.trim();
+          if (val && !barcodeList.includes(val)) {
+              barcodeList.push(val);
+              renderBarcodeList();
+          }
+      }
+
+      function renderBarcodeList() {
+          const container = document.getElementById('barcode-list');
+          if (!container) return;
+          container.innerHTML = '';
+          if (barcodeList.length === 0) {
+              container.innerHTML = '<p class="text-xs text-gray-500">No hay códigos en la lista.</p>';
+              return;
+          }
+          barcodeList.forEach(code => {
+              const div = document.createElement('div');
+              div.className = 'flex justify-between items-center bg-gray-800 p-2 rounded border border-gray-700 text-sm';
+              div.innerHTML = `
+                  <span>${code}</span>
+                  <button onclick="removeFromBarcodeList('${code}')" class="text-red-400 hover:text-red-300"><i class="fa-solid fa-times"></i></button>
+              `;
+              container.appendChild(div);
+          });
+      }
+
+      function removeFromBarcodeList(code) {
+          barcodeList = barcodeList.filter(c => c !== code);
+          renderBarcodeList();
+      }
+
       function printLiveBarcode() {
           const textInput = document.getElementById('live-barcode-input');
           const val = textInput ? textInput.value.trim() : 'Código';
@@ -564,6 +828,71 @@
           window.print();
       }
 
+      function printAllBarcodeList() {
+          if (barcodeList.length === 0) {
+              alert('La lista de códigos está vacía.');
+              return;
+          }
+          const ticketDiv = document.getElementById('printable-ticket');
+          let html = '';
+          barcodeList.forEach((code, index) => {
+              html += `
+                  <div style="text-align: center; margin-bottom: 8mm; page-break-inside: avoid;">
+                      <h4 style="margin:0 0 2mm 0; font-size:11px;"><b>KEV NAY - ETIQUETA</b></h4>
+                      <svg id="print-barcode-${index}" style="max-width:100%;"></svg>
+                      <p style="margin:2mm 0 0 0; font-size:10px;">Ref: ${code}</p>
+                  </div>
+              `;
+          });
+          ticketDiv.innerHTML = html;
+          barcodeList.forEach((code, index) => {
+              try {
+                  JsBarcode(`#print-barcode-${index}`, code, { format: "CODE128", width: 1.2, height: 40, displayValue: true, fontSize: 10 });
+              } catch(e) {}
+          });
+          window.print();
+      }
+
+      function toggleSelectAllProducts() {
+          const checkboxes = document.querySelectorAll('.product-checkbox');
+          const selectAll = document.getElementById('select-all-products');
+          checkboxes.forEach(cb => cb.checked = selectAll.checked);
+      }
+
+      function printSelectedBarcodes() {
+          const checkboxes = document.querySelectorAll('.product-checkbox:checked');
+          if (checkboxes.length === 0) {
+              alert('Selecciona al menos un producto.');
+              return;
+          }
+          const ticketDiv = document.getElementById('printable-ticket');
+          let html = '';
+          const selectedCodes = [];
+          checkboxes.forEach(cb => {
+              const code = cb.dataset.code;
+              const name = cb.dataset.name;
+              const price = cb.dataset.price;
+              selectedCodes.push({ code, name, price });
+          });
+          selectedCodes.forEach((item, index) => {
+              html += `
+                  <div style="text-align: center; margin-bottom: 6mm; page-break-inside: avoid;">
+                      <h4 style="margin:0 0 2mm 0; font-size:11px;"><b>${item.name}</b></h4>
+                      <p style="margin:0 0 2mm 0; font-size:10px;">Precio: $${parseFloat(item.price).toLocaleString()}</p>
+                      <svg id="print-selected-${index}"></svg>
+                  </div>
+              `;
+          });
+          ticketDiv.innerHTML = html;
+          selectedCodes.forEach((item, index) => {
+              try {
+                  JsBarcode(`#print-selected-${index}`, item.code, { format: "CODE128", width: 1.2, height: 35, displayValue: true, fontSize: 10 });
+              } catch(e) {}
+          });
+          window.print();
+      }
+
+      // ---------- Productos ----------
       async function fetchProducts() {
           if (!supabaseClient) return;
           try {
@@ -595,9 +924,13 @@
       }
 
       async function fetchSalesHistory() {
-          if (!supabaseClient) return;
+          if (!supabaseClient || !currentUser) return;
           try {
-              const { data, error } = await supabaseClient.from('sales').select('*').order('date', { ascending: false });
+              let query = supabaseClient.from('sales').select('*').order('date', { ascending: false });
+              if (currentUser.role !== 'admin') {
+                  query = query.eq('user_id', currentUser.id);
+              }
+              const { data, error } = await query;
               if (error) throw error;
               salesHistory = data || [];
               calculateClosingPreview();
@@ -702,10 +1035,10 @@
           });
           container.appendChild(fragment);
 
-          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const discountPercent = parseFloat(document.getElementById('cart-discount').value) || 0;
           const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
 
-          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const subtotalAfterDiscount = Math.max(0, subtotal * (1 - discountPercent / 100));
           const vatAmount = subtotalAfterDiscount * (vatRate / 100);
           const total = subtotalAfterDiscount + vatAmount;
 
@@ -716,9 +1049,9 @@
 
       function calculateChange() {
           const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
-          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const discountPercent = parseFloat(document.getElementById('cart-discount').value) || 0;
           const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
-          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const subtotalAfterDiscount = Math.max(0, subtotal * (1 - discountPercent / 100));
           const total = subtotalAfterDiscount + (subtotalAfterDiscount * (vatRate / 100));
 
           const received = parseFloat(document.getElementById('cash-received').value) || 0;
@@ -742,10 +1075,11 @@
 
       async function processSale(method) {
           if (cart.length === 0) return alert('El carrito está vacío.');
+          if (!currentUser) return alert('No hay usuario autenticado.');
           const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
-          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const discountPercent = parseFloat(document.getElementById('cart-discount').value) || 0;
           const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
-          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const subtotalAfterDiscount = Math.max(0, subtotal * (1 - discountPercent / 100));
           const vatAmount = subtotalAfterDiscount * (vatRate / 100);
           const total = subtotalAfterDiscount + vatAmount;
 
@@ -757,8 +1091,9 @@
               date: new Date().toISOString(),
               payment_method: method,
               customer_id: customerId ? parseInt(customerId) : null,
+              user_id: currentUser.id,
               subtotal,
-              discount,
+              discount: discountPercent,
               vat_amount: vatAmount,
               total,
               items_snapshot: [...cart]
@@ -772,6 +1107,7 @@
                       date: saleRecord.date,
                       payment_method: method,
                       customer_id: customerId ? parseInt(customerId) : null,
+                      user_id: currentUser.id,
                       total
                   };
                   const { error: retryError } = await supabaseClient.from('sales').insert([basicRecord]);
@@ -804,7 +1140,7 @@
       function printSaleTicket(sale, items, customer) {
           const ticketDiv = document.getElementById('printable-ticket');
           let itemsHtml = items.map(i => `
-              <div style="display:flex; justify-between; margin-bottom:2px;">
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                   <span>${i.qty}x ${i.name || i.product_name || 'Prod'}</span>
                   <span>$${((i.price || 0) * (i.qty || 1)).toLocaleString()}</span>
               </div>
@@ -818,7 +1154,7 @@
 
           ticketDiv.innerHTML = `
               <div style="text-align: center; margin-bottom: 6px;">
-                  <h3 style="margin:0; font-size:13px;"><b>KEV NAY POS</b></h3>
+                  <h3 style="margin:0; font-size:12px;"><b>KEV NAY POS</b></h3>
                   <p style="margin:1px 0; font-size:9px;">Factura de Venta / Recibo</p>
                   <p style="margin:1px 0; font-size:9px;">${new Date(sale.date).toLocaleString()}</p>
               </div>
@@ -833,7 +1169,7 @@
               <div style="margin-bottom: 4px;">${itemsHtml}</div>
               <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
               <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>$${parseFloat(sale.subtotal || sale.total || 0).toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Descuento:</span><span>$${parseFloat(sale.discount || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Descuento (%):</span><span>${parseFloat(sale.discount || 0)}%</span></div>
               <div style="display:flex; justify-content:space-between;"><span>IVA:</span><span>$${parseFloat(sale.vat_amount || 0).toLocaleString()}</span></div>
               <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:3px;"><span><b>TOTAL:</b></span><span><b>$${parseFloat(sale.total || 0).toLocaleString()}</b></span></div>
               <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
@@ -847,7 +1183,7 @@
           if(!tbody) return;
           tbody.innerHTML = '';
           if (products.length === 0) {
-              tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-500">No hay productos registrados.</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-gray-500">No hay productos registrados.</td></tr>';
               return;
           }
           const fragment = document.createDocumentFragment();
@@ -860,6 +1196,7 @@
               const costPrice = p.cost_price || 0;
 
               tr.innerHTML = `
+                  <td class="py-3 px-4"><input type="checkbox" class="product-checkbox" data-code="${safeCode}" data-name="${p.name.replace(/'/g, "\'")}" data-price="${p.price}"></td>
                   <td class="py-3 px-4"><img src="${imgSrc}" class="w-10 h-10 object-cover rounded bg-gray-900 border border-gray-700"></td>
                   <td class="py-3 px-4 font-medium">${p.name}</td>
                   <td class="py-3 px-4 text-gray-400">${safeCode}</td>
@@ -1016,7 +1353,7 @@
 
       function exportSalesToCSV() {
           if(salesHistory.length === 0) return alert('No hay ventas para exportar.');
-          let csv = 'ID Venta,Fecha,Metodo Pago,Subtotal,Descuento,IVA,Total\n';
+          let csv = 'ID Venta,Fecha,Metodo Pago,Subtotal,Descuento(%),IVA,Total\n';
           salesHistory.forEach(s => {
               csv += `"${s.id}","${s.date}","${s.payment_method}","${s.subtotal || 0}","${s.discount || 0}","${s.vat_amount || 0}","${s.total}"\n`;
           });
@@ -1024,244 +1361,167 @@
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.setAttribute('href', url);
-          a.setAttribute('download', `ventas_kev_nay_${new Date().toISOString().slice(0,10)}.csv`);
+          a.setAttribute('download', `ventas_${new Date().toISOString().slice(0,10)}.csv`);
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
       }
 
       function calculateClosingPreview() {
-          const initialCash = parseFloat(document.getElementById('closing-initial-cash').value) || 0;
-          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
-          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
-          const totalSales = cashSales + cardSales;
-          const expectedCash = initialCash + cashSales + cashMovements;
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash')?.value) || 0;
+          const actualCash = parseFloat(document.getElementById('closing-actual-cash')?.value) || 0;
 
+          let cashSales = 0;
+          let cardSales = 0;
           let totalCost = 0;
+          let totalInvoiced = 0;
+
           salesHistory.forEach(s => {
-              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+              const total = parseFloat(s.total) || 0;
+              if (s.payment_method === 'cash') cashSales += total;
+              else if (s.payment_method === 'card') cardSales += total;
+              totalInvoiced += total;
+
+              if (s.items_snapshot && Array.isArray(s.items_snapshot)) {
                   s.items_snapshot.forEach(item => {
-                      const itemCost = item.cost_price || 0;
-                      totalCost += (itemCost * (item.qty || 1));
+                      totalCost += (parseFloat(item.cost_price) || 0) * (item.qty || 1);
                   });
               }
           });
-          const grossProfit = totalSales - totalCost;
-          const profitMargin = totalSales > 0 ? ((grossProfit / totalSales) * 100).toFixed(1) : 0;
 
-          document.getElementById('prev-cash-val').innerText = `$${cashSales.toLocaleString()}`;
-          document.getElementById('prev-card-val').innerText = `$${cardSales.toLocaleString()}`;
-          document.getElementById('prev-mov-val').innerText = `$${cashMovements.toLocaleString()}`;
-          document.getElementById('prev-expected-val').innerText = `$${expectedCash.toLocaleString()}`;
-          document.getElementById('prev-cost-val').innerText = `$${totalCost.toLocaleString()}`;
-          document.getElementById('prev-profit-val').innerText = `$${grossProfit.toLocaleString()} (${profitMargin}%)`;
-          document.getElementById('prev-total-val').innerText = `$${totalSales.toLocaleString()}`;
+          const expectedCash = initialCash + cashSales + cashMovements;
+          const grossProfit = totalInvoiced - totalCost;
+          const margin = totalInvoiced > 0 ? ((grossProfit / totalInvoiced) * 100).toFixed(1) : '0';
+
+          if (document.getElementById('prev-cash-val')) document.getElementById('prev-cash-val').innerText = `$${cashSales.toLocaleString()}`;
+          if (document.getElementById('prev-card-val')) document.getElementById('prev-card-val').innerText = `$${cardSales.toLocaleString()}`;
+          if (document.getElementById('prev-mov-val')) document.getElementById('prev-mov-val').innerText = `$${cashMovements.toLocaleString()}`;
+          if (document.getElementById('prev-expected-val')) document.getElementById('prev-expected-val').innerText = `$${expectedCash.toLocaleString()}`;
+          if (document.getElementById('prev-cost-val')) document.getElementById('prev-cost-val').innerText = `$${totalCost.toLocaleString()}`;
+          if (document.getElementById('prev-profit-val')) document.getElementById('prev-profit-val').innerText = `$${grossProfit.toLocaleString()} (${margin}%)`;
+          if (document.getElementById('prev-total-val')) document.getElementById('prev-total-val').innerText = `$${totalInvoiced.toLocaleString()}`;
       }
 
       function renderClosingSalesTable() {
           const tbody = document.getElementById('closing-sales-list');
-          if(!tbody) return;
-          if(salesHistory.length === 0) {
-              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas.</td></tr>';
+          if (!tbody) return;
+          tbody.innerHTML = '';
+          if (salesHistory.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas en esta sesión.</td></tr>';
               return;
           }
-          tbody.innerHTML = '';
           salesHistory.forEach(s => {
               const tr = document.createElement('tr');
+              tr.className = 'border-b border-gray-800';
               tr.innerHTML = `
-                  <td class="py-2 px-2 text-gray-400">#${String(s.id).slice(-6)}</td>
+                  <td class="py-2 px-2 text-gray-400">#${s.id}</td>
                   <td class="py-2 px-2 text-gray-300">${new Date(s.date).toLocaleTimeString()}</td>
-                  <td class="py-2 px-2 text-gray-300">${s.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</td>
+                  <td class="py-2 px-2">${s.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</td>
                   <td class="py-2 px-2 font-bold text-red-400">$${parseFloat(s.total).toLocaleString()}</td>
               `;
               tbody.appendChild(tr);
           });
       }
 
-      async function generateCashClosingReport() {
-          const initialCash = parseFloat(document.getElementById('closing-initial-cash').value) || 0;
-          const actualCash = parseFloat(document.getElementById('closing-actual-cash').value) || 0;
-          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
-          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
-          const totalSales = cashSales + cardSales;
+      function generateCashClosingReport() {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash')?.value) || 0;
+          const actualCash = parseFloat(document.getElementById('closing-actual-cash')?.value) || 0;
+
+          let cashSales = 0;
+          let cardSales = 0;
+          let totalInvoiced = 0;
+
+          salesHistory.forEach(s => {
+              const total = parseFloat(s.total) || 0;
+              if (s.payment_method === 'cash') cashSales += total;
+              else if (s.payment_method === 'card') cardSales += total;
+              totalInvoiced += total;
+          });
+
           const expectedCash = initialCash + cashSales + cashMovements;
           const difference = actualCash - expectedCash;
 
-          let totalCost = 0;
-          salesHistory.forEach(s => {
-              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
-                  s.items_snapshot.forEach(item => {
-                      totalCost += ((item.cost_price || 0) * (item.qty || 1));
-                  });
-              }
-          });
-          const grossProfit = totalSales - totalCost;
-
-          const closingData = { initial_cash: initialCash, total_sales: totalSales, cash_sales: cashSales, card_sales: cardSales, expected_cash: expectedCash, actual_cash: actualCash, difference };
-
-          try {
-              if(supabaseClient) {
-                  await supabaseClient.from('cash_closings').insert([closingData]);
-              }
-
-              const ticketDiv = document.getElementById('printable-ticket');
-              ticketDiv.innerHTML = `
-                  <div style="text-align: center; margin-bottom: 6px;">
-                      <h3 style="margin:0; font-size:13px;"><b>KEV NAY - CIERRE CAJA</b></h3>
-                      <p style="margin:1px 0; font-size:9px;">${new Date().toLocaleString()}</p>
-                  </div>
-                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-                  <p style="margin:2px 0;">Efectivo Inicial: $${initialCash.toLocaleString()}</p>
-                  <p style="margin:2px 0;">Ventas Efectivo: $${cashSales.toLocaleString()}</p>
-                  <p style="margin:2px 0;">Movimientos Caja: $${cashMovements.toLocaleString()}</p>
-                  <p style="margin:2px 0;">Ventas Tarjeta: $${cardSales.toLocaleString()}</p>
-                  <p style="margin:2px 0;"><b>Ventas Totales: $${totalSales.toLocaleString()}</b></p>
-                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-                  <p style="margin:2px 0;">Costo Ventas: $${totalCost.toLocaleString()}</p>
-                  <p style="margin:2px 0;"><b>Utilidad Bruta: $${grossProfit.toLocaleString()}</b></p>
-                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-                  <p style="margin:2px 0;">Efectivo Esperado: $${expectedCash.toLocaleString()}</p>
-                  <p style="margin:2px 0;">Efectivo Real: $${actualCash.toLocaleString()}</p>
-                  <p style="margin:2px 0;"><b>Diferencia: $${difference.toLocaleString()}</b></p>
-                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-                  <p style="text-align: center; margin-top: 6px; font-size:9px;">¡Cierre financiero registrado!</p>
-              `;
-              window.print();
-          } catch (err) {
-              console.error(err);
-              alert('Error al registrar el cierre de caja.');
-          }
+          const ticketDiv = document.getElementById('printable-ticket');
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; margin-bottom: 6px;">
+                  <h3 style="margin:0; font-size:12px;"><b>KEV NAY POS</b></h3>
+                  <p style="margin:1px 0; font-size:9px;">REPORTE DE CIERRE DE CAJA</p>
+                  <p style="margin:1px 0; font-size:9px;">${new Date().toLocaleString()}</p>
+              </div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="margin:2px 0;"><b>Cajero/Usuario:</b> ${currentUser ? currentUser.username : 'N/A'}</p>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="display:flex; justify-content:space-between;"><span>Fondo Inicial:</span><span>$${initialCash.toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Ventas Efectivo:</span><span>$${cashSales.toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Ventas Tarjeta:</span><span>$${cardSales.toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Mov. Caja:</span><span>$${cashMovements.toLocaleString()}</span></div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="display:flex; justify-content:space-between;"><span>Efectivo Esperado:</span><span>$${expectedCash.toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Efectivo Contado:</span><span>$${actualCash.toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:2px;"><span><b>Diferencia:</b></span><span><b>$${difference.toLocaleString()}</b></span></div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:3px;"><span><b>TOTAL FACTURADO:</b></span><span><b>$${totalInvoiced.toLocaleString()}</b></span></div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="text-align: center; margin-top: 6px; font-size:9px;">Cierre Generado Exitosamente</p>
+          `;
+          window.print();
       }
 
-      async function promptAdjustment(productId) {
+      function openNewCustomerModal() {
+          const name = prompt('Nombre completo del cliente:');
+          if(!name) return;
+          const phone = prompt('Teléfono:') || '';
+          const cedula = prompt('Cédula:') || '';
+          const nit = prompt('NIT:') || '';
+          const address = prompt('Dirección:') || '';
+
+          supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }])
+              .then(({ error }) => {
+                  if(error) alert('Error al crear cliente.');
+                  else {
+                      alert('Cliente creado.');
+                      fetchCustomers();
+                  }
+              });
+      }
+
+      function promptAdjustment(productId) {
           const product = products.find(p => p.id === productId);
-          const newStockStr = prompt(`Nuevo stock físico para "${product.name}":`, product.stock);
-          if (newStockStr === null) return;
-          const newStock = parseInt(newStockStr);
-          if (isNaN(newStock) || newStock < 0) return alert('Valor inválido.');
+          if(!product) return;
+          const newStock = prompt(`Ajustar stock para ${product.name}:`, product.stock);
+          if(newStock === null) return;
+          const val = parseInt(newStock);
+          if(isNaN(val)) return alert('Número inválido.');
+          supabaseClient.from('products').update({ stock: val }).eq('id', productId)
+              .then(({ error }) => {
+                  if(error) alert('Error al actualizar stock.');
+                  else fetchProducts();
+              });
+      }
 
-          try {
-              const { error } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', productId);
-              if (error) throw error;
-              product.stock = newStock;
-              renderInventoryTable();
-              renderProductGrid();
-              alert('Stock actualizado correctamente.');
-          } catch (err) {
-              console.error(err);
-              alert('No se pudo actualizar el stock en Supabase.');
+      function instalarPWA() {
+          if (deferredPrompt) {
+              deferredPrompt.prompt();
+              deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
           }
       }
 
-      async function openNewProductModal() {
-          // Opción para ingresar manual o mediante escaneo de cámara
-          openCameraScanner((scannedCode) => {
-              createProductWithCode(scannedCode);
-          });
-      }
+      let deferredPrompt;
+      window.addEventListener('beforeinstallprompt', (e) => {
+          e.preventDefault();
+          deferredPrompt = e;
+          const btn = document.getElementById('btn-instalar-pwa');
+          if(btn) btn.style.display = 'block';
+      });
 
-      async function createProductWithCode(initialCode = '') {
-          const name = prompt('Nombre del producto:');
-          if (!name) return;
-
-          let code = prompt('Código de barras / SKU:', initialCode);
-          if(!code || code.trim() === '') {
-              code = '770' + Math.floor(100000 + Math.random() * 900000);
-          }
-          const cost_price = parseFloat(prompt('Costo de adquisición / compra ($):') || 0);
-          const price = parseFloat(prompt('Precio de venta ($):'));
-          const stock = parseInt(prompt('Stock inicial:'));
-          const image_url = prompt('URL de la imagen del producto (Opcional):') || '';
-
-          if (!name || isNaN(price) || isNaN(stock)) return alert('Datos incompletos.');
-
-          try {
-              const { error } = await supabaseClient.from('products').insert([{ name, code: code.trim(), cost_price, price, stock, image_url: image_url.trim() }]);
-              if (error) throw error;
-              alert('¡Producto creado con éxito!');
+      // Inicialización
+      window.addEventListener('DOMContentLoaded', () => {
+          if (checkSession()) {
               fetchProducts();
-          } catch (err) {
-              console.error(err);
-              alert('Error al guardar el producto en Supabase.');
+              fetchCustomers();
+              fetchSalesHistory();
           }
-      }
-
-      async function openNewCustomerModal() {
-          const name = prompt('Nombre completo o Razón Social del cliente:');
-          if (!name) return;
-          const phone = prompt('Número de Teléfono:');
-          const cedula = prompt('Número de Cédula:');
-          const nit = prompt('Número de NIT:');
-          const address = prompt('Dirección fiscal/comercial:');
-
-          try {
-              const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }]);
-              if (error) throw error;
-              alert('Cliente registrado con éxito.');
-              await fetchCustomers();
-          } catch (err) {
-              console.error(err);
-              alert('Error al guardar el cliente en Supabase.');
-          }
-      }
-
-      window.onload = () => {
-          fetchProducts();
-          fetchCustomers();
-          fetchSalesHistory();
-      };
+      });
   </script>
-
-<script>
-// PWA
-let deferredPrompt=null;
-window.addEventListener('beforeinstallprompt', (e)=>{e.preventDefault();deferredPrompt=e;const b=document.getElementById('btn-instalar-pwa');if(b)b.style.display='block';});
-async function instalarPWA(){if(!deferredPrompt){alert('Ya está instalada o usa menú navegador > Instalar');return;}deferredPrompt.prompt();const {outcome}=await deferredPrompt.userChoice;deferredPrompt=null;if(outcome==='accepted') alert('¡App instalada!');}
-if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').then(r=>console.log('SW',r.scope)).catch(e=>console.log(e));});}
-
-// LOGIN SEGURO - HASH de KevNay#2026!
-const HASH_AUTORIZADO="350cf8a7407736f312321f52159a47f8e620f10b820fd7f614a78755a8fde1e6";
-let intentosFallidos=parseInt(localStorage.getItem('kevnay_intentos')||'0');
-let bloqueoHasta=parseInt(localStorage.getItem('kevnay_bloqueo')||'0');
-async function sha256(t){const b=new TextEncoder().encode(t);const h=await crypto.subtle.digest('SHA-256',b);return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('');}
-function togglePass(){const i=document.getElementById('login-pass');i.type=i.type==='password'?'text':'password';}
-async function intentarLogin(){
-  const input=document.getElementById('login-pass');const err=document.getElementById('login-error');const btn=document.getElementById('btn-login');
-  if(Date.now()<bloqueoHasta){const s=Math.ceil((bloqueoHasta-Date.now())/1000);err.textContent=`⛔ Bloqueado ${s}s`;err.classList.add('show');return;}
-  if(!input.value.trim()){err.textContent='⚠️ Ingresa tu clave';err.classList.add('show');return;}
-  btn.textContent='Verificando...';btn.disabled=true;
-  try{
-    const hash=await sha256(input.value.trim());
-    if(hash===HASH_AUTORIZADO){
-      localStorage.setItem('kevnay_auth', JSON.stringify({ok:true,time:Date.now()}));
-      localStorage.removeItem('kevnay_intentos');localStorage.removeItem('kevnay_bloqueo');
-      document.getElementById('login-overlay').classList.add('hidden');setTimeout(()=>{document.getElementById('login-overlay').style.display='none';},400);
-      input.value='';
-    }else{
-      intentosFallidos++;localStorage.setItem('kevnay_intentos',intentosFallidos);
-      if(intentosFallidos>=5){bloqueoHasta=Date.now()+30000;localStorage.setItem('kevnay_bloqueo',bloqueoHasta);err.textContent='⛔ Demasiados intentos. Bloqueado 30s';}
-      else{err.textContent=`❌ Clave incorrecta. Intento ${intentosFallidos}/5`;}
-      err.classList.add('show');input.value='';input.focus();
-    }
-  }catch(e){err.textContent='Error seguridad';err.classList.add('show');}
-  btn.textContent='🔐 Ingresar al POS';btn.disabled=false;
-}
-function verificarSesion(){
-  const s=localStorage.getItem('kevnay_auth');
-  if(!s) return false;
-  try{const d=JSON.parse(s);if(Date.now()-d.time<12*60*60*1000 && d.ok){document.getElementById('login-overlay').style.display='none';return true;}}catch{}
-  return false;
-}
-function cerrarSesion(){if(confirm('¿Cerrar sesión POS?')){localStorage.removeItem('kevnay_auth');location.reload();}}
-document.addEventListener('DOMContentLoaded',()=>{
-  verificarSesion();
-  // agregar botón cerrar sesión al header
-  const nav=document.querySelector('header nav');
-  if(nav){const btn=document.createElement('button');btn.className='px-4 py-2 bg-gray-900 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600';btn.innerHTML='<i class="fa-solid fa-right-from-bracket mr-2"></i>Salir';btn.onclick=cerrarSesion;nav.appendChild(btn);}
-});
-</script>
-
 </body>
 </html>
-
-
