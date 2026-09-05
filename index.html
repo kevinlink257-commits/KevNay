@@ -85,14 +85,17 @@
       <h2 style="font-size:1.6rem;font-weight:800;color:white">KEV NAY</h2>
       <p style="color:#9ca3af;font-size:.85rem;text-align:center">POS & Cloud Hub<br><small>Acceso seguro - Sistema de caja</small></p>
     </div>
-    <div class="login-field">
-      <input type="text" id="login-username" placeholder="Usuario" autocomplete="username" onkeydown="if(event.key==='Enter') intentarLogin()">
-    </div>
-    <div class="login-field">
-      <input type="password" id="login-pass" placeholder="••••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter') intentarLogin()">
-      <button class="toggle-eye" onclick="togglePass()" type="button">👁️</button>
-    </div>
-    <button style="width:100%;padding:14px;background:#dc2626;color:white;border-radius:12px;font-weight:700;border:none;cursor:pointer" onclick="intentarLogin()" id="btn-login">🔐 Ingresar al POS</button>
+    <!-- Envolviendo en una etiqueta form para que el navegador reconozca y guarde credenciales -->
+    <form onsubmit="event.preventDefault(); intentarLogin();">
+      <div class="login-field">
+        <input type="text" id="login-username" placeholder="Usuario" autocomplete="username" required>
+      </div>
+      <div class="login-field">
+        <input type="password" id="login-pass" placeholder="••••••••••••" autocomplete="current-password" required>
+        <button class="toggle-eye" onclick="togglePass()" type="button">👁️</button>
+      </div>
+      <button type="submit" style="width:100%;padding:14px;background:#dc2626;color:white;border-radius:12px;font-weight:700;border:none;cursor:pointer" id="btn-login">🔐 Ingresar al POS</button>
+    </form>
     <div class="login-error" id="login-error"></div>
     <div style="margin-top:14px;font-size:.78rem;color:#9ca3af;line-height:1.4;background:rgba(255,255,255,0.03);border:1px solid #374151;border-radius:10px;padding:10px 12px">🔒 Usuario y contraseña protegidos con hash SHA-256.<br>💡 Puedes instalar esta app: menú navegador > Instalar app.<br><br><button onclick="instalarPWA()" id="btn-instalar-pwa" style="display:none;width:100%;margin-top:8px;padding:8px;background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:8px">📲 Instalar app</button></div>
   </div>
@@ -1556,3 +1559,4 @@
   </script>
 </body>
 </html>
+
