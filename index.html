@@ -76,6 +76,8 @@
 </style>
 </head>
 
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+
 <div id="login-overlay">
   <div class="login-box">
     <div class="login-logo">
@@ -96,8 +98,6 @@
   </div>
 </div>
 
-<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
-
   <!-- Navbar -->
   <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center shadow-md">
       <div class="flex items-center space-x-3">
@@ -111,6 +111,7 @@
           <button onclick="switchTab('customers')" id="btn-customers" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-users mr-2"></i>Clientes & Historial</button>
           <button onclick="switchTab('closing')" id="btn-closing" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes & Cierre</button>
           <button onclick="switchTab('users')" id="btn-users" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600 hidden"><i class="fa-solid fa-user-cog mr-2"></i>Usuarios</button>
+          <button onclick="logout()" class="px-4 py-2 bg-red-900 text-gray-300 rounded-lg font-medium transition hover:bg-red-800"><i class="fa-solid fa-right-from-bracket mr-2"></i>Salir</button>
       </nav>
   </header>
 
@@ -428,6 +429,30 @@
       let html5QrCodeScanner = null;
       let currentScannerTarget = 'pos';
 
+      // PWA Install logic
+      let deferredPrompt;
+      window.addEventListener('beforeinstallprompt', (e) => {
+          e.preventDefault();
+          deferredPrompt = e;
+          const btn = document.getElementById('btn-instalar-pwa');
+          if(btn) btn.style.display = 'block';
+      });
+
+      async function instalarPWA() {
+          if (deferredPrompt) {
+              deferredPrompt.prompt();
+              const { outcome } = await deferredPrompt.userChoice;
+              if (outcome === 'accepted') {
+                  document.getElementById('btn-instalar-pwa').style.display = 'none';
+              }
+              deferredPrompt = null;
+          }
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+          checkSession();
+      });
+
       function playBeepSound() {
           try {
               const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -619,6 +644,9 @@
                       if (currentUser.role === 'admin') {
                           document.getElementById('btn-users').classList.remove('hidden');
                       }
+                      fetchProducts();
+                      fetchCustomers();
+                      fetchSalesHistory();
                       return true;
                   }
               } catch(e) {}
@@ -908,6 +936,26 @@
           }
       }
 
+      async function openNewProductModal() {
+          const name = prompt('Nombre del producto:');
+          if (!name) return;
+          const code = prompt('Código de barras / SKU (dejar vacío para auto-generar):') || ('770' + Math.floor(100000 + Math.random() * 900000));
+          const cost_price = parseFloat(prompt('Costo de compra ($):', '0')) || 0;
+          const price = parseFloat(prompt('Precio de venta ($):', '0')) || 0;
+          const stock = parseInt(prompt('Stock inicial:', '0')) || 0;
+          const image_url = prompt('URL de la imagen (opcional):') || '';
+
+          try {
+              const { error } = await supabaseClient.from('products').insert([{ name, code, cost_price, price, stock, image_url }]);
+              if (error) throw error;
+              alert('¡Producto creado exitosamente!');
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al crear el producto.');
+          }
+      }
+
       async function fetchCustomers() {
           if (!supabaseClient) return;
           try {
@@ -920,6 +968,25 @@
               }
           } catch (err) {
               console.error('Error al cargar clientes:', err);
+          }
+      }
+
+      async function openNewCustomerModal() {
+          const name = prompt('Nombre o Razón Social del Cliente:');
+          if (!name) return;
+          const phone = prompt('Teléfono (opcional):') || '';
+          const cedula = prompt('Cédula (opcional):') || '';
+          const nit = prompt('NIT (opcional):') || '';
+          const address = prompt('Dirección (opcional):') || '';
+
+          try {
+              const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }]);
+              if (error) throw error;
+              alert('¡Cliente creado exitosamente!');
+              fetchCustomers();
+          } catch (err) {
+              console.error(err);
+              alert('Error al crear el cliente.');
           }
       }
 
@@ -1245,6 +1312,29 @@
               alert('Error al actualizar el producto en Supabase.');
           }
       }
+      
+      async function promptAdjustment(productId) {
+          const product = products.find(p => p.id === productId);
+          if(!product) return;
+          
+          const adjustmentStr = prompt(`Stock actual de ${product.name}: ${product.stock}\nIngrese la cantidad a sumar (ej: 10) o restar (ej: -5):`, "0");
+          if (!adjustmentStr) return;
+          
+          const adjustment = parseInt(adjustmentStr);
+          if (isNaN(adjustment) || adjustment === 0) return;
+          
+          const newStock = product.stock + adjustment;
+          
+          try {
+              const { error } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', productId);
+              if (error) throw error;
+              alert(`¡Stock actualizado! Nuevo stock: ${newStock}`);
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al ajustar el inventario en Supabase.');
+          }
+      }
 
       function printSingleBarcode(code, name, price) {
           const ticketDiv = document.getElementById('printable-ticket');
@@ -1447,81 +1537,22 @@
                   <h3 style="margin:0; font-size:12px;"><b>KEV NAY POS</b></h3>
                   <p style="margin:1px 0; font-size:9px;">REPORTE DE CIERRE DE CAJA</p>
                   <p style="margin:1px 0; font-size:9px;">${new Date().toLocaleString()}</p>
+                  <p style="margin:1px 0; font-size:9px;">Cajero: ${currentUser ? currentUser.username : 'Administrador'}</p>
               </div>
               <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-              <p style="margin:2px 0;"><b>Cajero/Usuario:</b> ${currentUser ? currentUser.username : 'N/A'}</p>
+              <p style="margin:2px 0;"><b>Fondo Inicial:</b> $${initialCash.toLocaleString()}</p>
+              <p style="margin:2px 0;"><b>Ventas Efectivo:</b> $${cashSales.toLocaleString()}</p>
+              <p style="margin:2px 0;"><b>Ventas Tarjeta:</b> $${cardSales.toLocaleString()}</p>
+              <p style="margin:2px 0;"><b>Ingresos/Gastos:</b> $${cashMovements.toLocaleString()}</p>
               <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-              <div style="display:flex; justify-content:space-between;"><span>Fondo Inicial:</span><span>$${initialCash.toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Ventas Efectivo:</span><span>$${cashSales.toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Ventas Tarjeta:</span><span>$${cardSales.toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Mov. Caja:</span><span>$${cashMovements.toLocaleString()}</span></div>
+              <p style="margin:2px 0;"><b>Efectivo Esperado:</b> $${expectedCash.toLocaleString()}</p>
+              <p style="margin:2px 0;"><b>Efectivo Real en Caja:</b> $${actualCash.toLocaleString()}</p>
+              <p style="margin:2px 0;"><b>Diferencia (Sobrante/Faltante):</b> $${difference.toLocaleString()}</p>
               <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-              <div style="display:flex; justify-content:space-between;"><span>Efectivo Esperado:</span><span>$${expectedCash.toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between;"><span>Efectivo Contado:</span><span>$${actualCash.toLocaleString()}</span></div>
-              <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:2px;"><span><b>Diferencia:</b></span><span><b>$${difference.toLocaleString()}</b></span></div>
-              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-              <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:3px;"><span><b>TOTAL FACTURADO:</b></span><span><b>$${totalInvoiced.toLocaleString()}</b></span></div>
-              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
-              <p style="text-align: center; margin-top: 6px; font-size:9px;">Cierre Generado Exitosamente</p>
+              <p style="text-align: center; margin-top: 6px; font-size:9px;">Cierre Generado Automáticamente<br/>Kev Nay Business Hub</p>
           `;
           window.print();
       }
-
-      function openNewCustomerModal() {
-          const name = prompt('Nombre completo del cliente:');
-          if(!name) return;
-          const phone = prompt('Teléfono:') || '';
-          const cedula = prompt('Cédula:') || '';
-          const nit = prompt('NIT:') || '';
-          const address = prompt('Dirección:') || '';
-
-          supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }])
-              .then(({ error }) => {
-                  if(error) alert('Error al crear cliente.');
-                  else {
-                      alert('Cliente creado.');
-                      fetchCustomers();
-                  }
-              });
-      }
-
-      function promptAdjustment(productId) {
-          const product = products.find(p => p.id === productId);
-          if(!product) return;
-          const newStock = prompt(`Ajustar stock para ${product.name}:`, product.stock);
-          if(newStock === null) return;
-          const val = parseInt(newStock);
-          if(isNaN(val)) return alert('Número inválido.');
-          supabaseClient.from('products').update({ stock: val }).eq('id', productId)
-              .then(({ error }) => {
-                  if(error) alert('Error al actualizar stock.');
-                  else fetchProducts();
-              });
-      }
-
-      function instalarPWA() {
-          if (deferredPrompt) {
-              deferredPrompt.prompt();
-              deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
-          }
-      }
-
-      let deferredPrompt;
-      window.addEventListener('beforeinstallprompt', (e) => {
-          e.preventDefault();
-          deferredPrompt = e;
-          const btn = document.getElementById('btn-instalar-pwa');
-          if(btn) btn.style.display = 'block';
-      });
-
-      // Inicialización
-      window.addEventListener('DOMContentLoaded', () => {
-          if (checkSession()) {
-              fetchProducts();
-              fetchCustomers();
-              fetchSalesHistory();
-          }
-      });
   </script>
 </body>
 </html>
