@@ -13,9 +13,9 @@
           body * { visibility: hidden !important; }
           body.print-ticket #printable-ticket, body.print-ticket #printable-ticket * { visibility: visible !important; }
           body.print-ticket #printable-ticket {
-              position: absolute; left: 0; top: 0; width: 50mm; font-family: 'Courier New', Courier, monospace;
+              position: absolute; left: 0; top: 0; width: 58mm; font-family: 'Courier New', Courier, monospace;
               font-size: 11px; color: black !important; background: white !important;
-              padding: 4mm; display: block !important; text-align: left; line-height: 1.2;
+              padding: 2mm; display: block !important; text-align: left; line-height: 1.2;
           }
           body.print-letter #printable-letter, body.print-letter #printable-letter * { visibility: visible !important; }
           body.print-letter #printable-letter {
@@ -84,14 +84,14 @@
                   <div id="cart-items" class="space-y-2 overflow-y-auto max-h-[22vh] pr-2"><p class="text-gray-500 text-center py-4">El carrito está vacío</p></div>
               </div>
               <div class="border-t border-gray-700 pt-3 space-y-2">
-                  <div class="flex justify-between text-sm"><span>Subtotal:</span><span id="cart-subtotal">$0.00</span></div>
+                  <div class="flex justify-between text-sm"><span>Subtotal:</span><span id="cart-subtotal">$0</span></div>
                   <div class="flex justify-between text-sm items-center">
                       <span>Descuento (%):</span><input type="number" id="cart-discount" value="0" class="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
                   </div>
-                  <div class="flex justify-between text-lg font-bold"><span>Total:</span><span id="cart-total" class="text-red-400">$0.00</span></div>
+                  <div class="flex justify-between text-lg font-bold"><span>Total:</span><span id="cart-total" class="text-red-400">$0</span></div>
                   <div class="grid grid-cols-2 gap-2 pt-2">
-                      <button onclick="processSale('cash')" class="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg font-bold text-white"><i class="fa-solid fa-money-bill-wave mr-1"></i>Efectivo</button>
-                      <button onclick="processSale('card')" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold text-white"><i class="fa-solid fa-credit-card mr-1"></i>Tarjeta</button>
+                      <button onclick="processSale('cash')" class="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-money-bill-wave mr-1"></i>Efectivo</button>
+                      <button onclick="processSale('card')" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-credit-card mr-1"></i>Tarjeta</button>
                   </div>
               </div>
           </div>
@@ -153,6 +153,50 @@
           </table>
       </section>
 
+      <!-- VISTA CIERRE DE CAJA -->
+      <section id="view-closing" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-6">
+          <div class="flex justify-between items-center border-b border-gray-700 pb-4">
+              <div>
+                  <h2 class="text-xl font-bold"><i class="fa-solid fa-chart-pie mr-2"></i>Cierre de Caja</h2>
+                  <p class="text-xs text-gray-400 mt-1" id="closing-subtitle">Resumen de ventas del cajero</p>
+              </div>
+              <button onclick="printClosingReport()" class="bg-green-600 hover:bg-green-500 px-5 py-2 rounded-lg font-bold text-white transition">
+                  <i class="fa-solid fa-print mr-2"></i>Imprimir Cierre
+              </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                  <p class="text-xs text-gray-400">Efectivo Recaudado</p>
+                  <p class="text-2xl font-bold text-green-400" id="closing-cash">$0</p>
+              </div>
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                  <p class="text-xs text-gray-400">Tarjeta Recaudado</p>
+                  <p class="text-2xl font-bold text-blue-400" id="closing-card">$0</p>
+              </div>
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                  <p class="text-xs text-gray-400">Total General</p>
+                  <p class="text-2xl font-bold text-red-400" id="closing-total">$0</p>
+              </div>
+          </div>
+
+          <div>
+              <h3 class="text-md font-bold mb-3 text-gray-300">Historial de Ventas</h3>
+              <table class="w-full text-left border-collapse">
+                  <thead>
+                      <tr class="border-b border-gray-700 text-gray-400 text-xs">
+                          <th class="py-2">Venta ID</th>
+                          <th class="py-2">Cajero</th>
+                          <th class="py-2">Método</th>
+                          <th class="py-2 text-right">Total</th>
+                          <th class="py-2 text-right">Hora</th>
+                      </tr>
+                  </thead>
+                  <tbody id="closing-sales-table" class="divide-y divide-gray-700 text-sm"></tbody>
+              </table>
+          </div>
+      </section>
+
       <!-- VISTA USUARIOS -->
       <section id="view-users" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
           <div class="flex justify-between items-center mb-6">
@@ -164,14 +208,6 @@
               <tbody id="users-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
           </table>
       </section>
-      
-      <!-- VISTA CIERRE -->
-      <section id="view-closing" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <h2 class="text-xl font-bold mb-6"><i class="fa-solid fa-chart-pie mr-2"></i>Cierre y Finanzas</h2>
-          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
-              <p class="text-gray-400">Total Ventas en sesión: <span id="closing-total" class="font-bold text-white">$0</span></p>
-          </div>
-      </section>
 
   </main>
 
@@ -182,15 +218,15 @@
       const SUPABASE_URL = 'https://cjoqtnpqcantwmghagsv.supabase.co';
       const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqb3F0bnBxY2FudHdtZ2hhZ3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MDIwMzIsImV4cCI6MjEwMjk3ODAzMn0.rV3SK1qTF_QuIImRNmrgHo0zQvdgZqvzgLCPOwAk9Ek';
       let supabaseClient = null;
-      try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e){ console.error("Error inicializando Supabase:", e); }
+      try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e){ console.error(e); }
 
-      let products = [], customers = [], cart = [], systemUsers = [], currentUserRole = null, currentUsername = null;
+      let products = [], customers = [], cart = [], currentUserRole = null, currentUsername = null;
+      let lastClosingData = { cash: 0, card: 0, total: 0, count: 0 };
 
       async function hashSHA256(text) {
           const msgBuffer = new TextEncoder().encode(text);
           const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+          return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
       }
 
       async function handleLogin() {
@@ -207,19 +243,13 @@
                   .eq('username', user)
                   .maybeSingle();
 
-              if (error) {
-                  console.error("Error Supabase:", error);
-                  return alert('Error de permisos o conexión a la BD: ' + error.message);
-              }
-
-              if (!data) {
-                  return alert('El usuario no ha sido creado en la base de datos.');
-              }
+              if (error) return alert('Error de conexión o permisos: ' + error.message);
+              if (!data) return alert('El usuario no existe.');
 
               if (data.password_hash === hashedPass) {
                   currentUserRole = data.role;
                   currentUsername = data.username;
-                  document.getElementById('user-role-display').innerText = `(${data.role.toUpperCase()})`;
+                  document.getElementById('user-role-display').innerText = `(${data.username} - ${data.role.toUpperCase()})`;
                   document.getElementById('login-overlay').style.display = 'none';
                   applyRolePermissions();
                   fetchInitialData();
@@ -227,13 +257,13 @@
                   alert('Contraseña incorrecta.');
               }
           } catch (err) {
-              console.error(err);
-              alert('Error inesperado al conectar.');
+              alert('Error al intentar iniciar sesión.');
           }
       }
 
       function applyRolePermissions() {
-          const adminOnlyIds = ['btn-inventory', 'btn-generator', 'btn-closing', 'btn-users'];
+          // El cajero ahora SÍ tiene acceso a 'btn-closing'
+          const adminOnlyIds = ['btn-inventory', 'btn-generator', 'btn-users'];
           adminOnlyIds.forEach(id => {
               const el = document.getElementById(id);
               if (el) el.style.display = (currentUserRole === 'admin') ? 'block' : 'none';
@@ -258,37 +288,14 @@
           const activeBtn = document.getElementById(`btn-${tab}`);
           if(targetView) targetView.classList.remove('hidden');
           if(activeBtn) activeBtn.className = activeBtn.className.replace('bg-gray-700 text-gray-300', 'bg-red-600 text-white');
+
+          if (tab === 'closing') fetchClosingData();
       }
 
       async function fetchInitialData() {
           await fetchProducts();
           await fetchCustomers();
-          if (currentUserRole === 'admin') await fetchUsers();
-      }
-
-      async function fetchUsers() {
-          const { data } = await supabaseClient.from('app_users').select('*').order('created_at', { ascending: false });
-          systemUsers = data || [];
-          const tbody = document.getElementById('users-table-body');
-          tbody.innerHTML = '';
-          systemUsers.forEach(u => {
-              tbody.innerHTML += `<tr><td class="py-3">${u.username}</td><td><span class="bg-gray-700 px-2 rounded text-xs">${u.role}</span></td><td class="text-gray-400 text-xs">${new Date(u.created_at).toLocaleDateString()}</td></tr>`;
-          });
-      }
-
-      async function openNewUserModal() {
-          const username = prompt('Nombre del nuevo usuario (ej: cajero1):');
-          if(!username) return;
-          const pass = prompt('Contraseña para este usuario:');
-          if(!pass) return;
-          const role = prompt('Escribe el rol ("admin" o "cajero"):').toLowerCase();
-          if(role !== 'admin' && role !== 'cajero') return alert('Rol inválido. Debe ser "admin" o "cajero".');
-
-          const password_hash = await hashSHA256(pass);
-          const { error } = await supabaseClient.from('app_users').insert([{ username: username.toLowerCase().trim(), password_hash, role }]);
-          
-          if(error) alert('Error: ' + error.message);
-          else { alert('Usuario creado exitosamente.'); fetchUsers(); }
+          if (currentUserRole === 'admin') fetchUsers();
       }
 
       async function fetchProducts() {
@@ -296,22 +303,6 @@
           products = data || [];
           renderProductGrid();
           renderInventoryTable();
-      }
-
-      async function openNewProductModal() {
-          const name = prompt('Nombre del producto:');
-          if (!name) return;
-          let code = prompt('Código de barras / SKU (Déjalo vacío para autogenerar):');
-          if (!code) code = '770' + Math.floor(100000 + Math.random() * 900000);
-          const cost_price = parseFloat(prompt('Costo de compra ($):') || 0);
-          const price = parseFloat(prompt('Precio de venta ($):'));
-          const stock = parseInt(prompt('Stock inicial:') || 0);
-
-          if (isNaN(price)) return alert('El precio de venta es obligatorio.');
-
-          const { error } = await supabaseClient.from('products').insert([{ name, code, cost_price, price, stock }]);
-          if (error) alert('Error: ' + error.message);
-          else { alert('Producto guardado.'); fetchProducts(); }
       }
 
       function filterProducts(query) {
@@ -343,6 +334,229 @@
           });
       }
 
+      function addToCart(productId) {
+          const product = products.find(p => p.id === productId);
+          const existing = cart.find(i => i.id === productId);
+          if (existing) {
+              if (existing.qty < product.stock) existing.qty++;
+              else alert('No hay suficiente stock.');
+          } else {
+              cart.push({ ...product, qty: 1 });
+          }
+          renderCart();
+      }
+
+      function renderCart() {
+          const container = document.getElementById('cart-items');
+          container.innerHTML = '';
+          let subtotal = 0;
+          cart.forEach(item => {
+              subtotal += item.price * item.qty;
+              container.innerHTML += `<div class="flex justify-between items-center bg-gray-900 p-2 rounded border border-gray-700 text-sm">
+                  <div><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-400">$${item.price} x ${item.qty}</p></div>
+                  <button onclick="removeFromCart(${item.id})" class="text-red-400 hover:text-red-300 px-2"><i class="fa-solid fa-trash"></i></button>
+              </div>`;
+          });
+          
+          const discountPct = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const discountAmount = subtotal * (discountPct / 100);
+          const total = Math.max(0, subtotal - discountAmount);
+
+          document.getElementById('cart-subtotal').innerText = `$${subtotal.toLocaleString()}`;
+          document.getElementById('cart-total').innerText = `$${total.toLocaleString()}`;
+      }
+
+      function removeFromCart(id) {
+          cart = cart.filter(i => i.id !== id);
+          renderCart();
+      }
+
+      // REGISTRO DE VENTA REAL E IMPRESIÓN DIRECTA
+      async function processSale(method) {
+          if (cart.length === 0) return alert('El carrito está vacío.');
+
+          const discountPct = parseFloat(document.getElementById('cart-discount').value) || 0;
+          let subtotal = 0;
+          cart.forEach(item => subtotal += item.price * item.qty);
+          const discountAmount = subtotal * (discountPct / 100);
+          const total = Math.max(0, subtotal - discountAmount);
+          const customerId = document.getElementById('sale-customer').value || null;
+
+          // 1. Guardar en Supabase
+          const { data: saleData, error: saleError } = await supabaseClient
+              .from('sales')
+              .insert([{
+                  cashier: currentUsername,
+                  customer_id: customerId,
+                  subtotal: subtotal,
+                  discount: discountPct,
+                  total: total,
+                  payment_method: method,
+                  items: cart
+              }])
+              .select()
+              .single();
+
+          if (saleError) return alert('Error al guardar la venta: ' + saleError.message);
+
+          // 2. Descontar Stock de Productos
+          for (const item of cart) {
+              const newStock = Math.max(0, item.stock - item.qty);
+              await supabaseClient.from('products').update({ stock: newStock }).eq('id', item.id);
+          }
+
+          // 3. Imprimir Recibo
+          printReceiptTicket(saleData, cart, subtotal, discountPct, total, method);
+
+          // 4. Limpiar datos localmente
+          cart = [];
+          document.getElementById('cart-discount').value = '0';
+          await fetchProducts();
+          renderCart();
+      }
+
+      // IMPRIMIR RECIBO FISICO EN POS
+      function printReceiptTicket(sale, items, subtotal, discount, total, method) {
+          const ticketDiv = document.getElementById('printable-ticket');
+          const dateStr = new Date(sale.created_at || Date.now()).toLocaleString();
+
+          let itemsHtml = '';
+          items.forEach(i => {
+              itemsHtml += `
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span>${i.qty}x ${i.name.substring(0, 16)}</span>
+                  <span>$${(i.price * i.qty).toLocaleString()}</span>
+              </div>`;
+          });
+
+          ticketDiv.innerHTML = `
+              <div style="text-align:center; font-weight:bold; margin-bottom:4px;">
+                  <h2 style="font-size:14px; margin:0;">KEV NAY POS</h2>
+                  <p style="font-size:10px; margin:2px 0;">Recibo de Venta #${sale.id}</p>
+              </div>
+              <p style="font-size:10px; margin:2px 0;"><b>Fecha:</b> ${dateStr}</p>
+              <p style="font-size:10px; margin:2px 0;"><b>Cajero:</b> ${sale.cashier}</p>
+              <p style="font-size:10px; margin:2px 0;"><b>Pago:</b> ${method === 'cash' ? 'Efectivo' : 'Tarjeta'}</p>
+              <hr style="border-top:1px dashed #000; margin:4px 0;">
+              ${itemsHtml}
+              <hr style="border-top:1px dashed #000; margin:4px 0;">
+              <div style="display:flex; justify-content:space-between; font-size:10px;">
+                  <span>Subtotal:</span><span>$${subtotal.toLocaleString()}</span>
+              </div>
+              ${discount > 0 ? `<div style="display:flex; justify-content:space-between; font-size:10px;"><span>Desc (${discount}%):</span><span>-$${(subtotal * discount / 100).toLocaleString()}</span></div>` : ''}
+              <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:12px; margin-top:3px;">
+                  <span>TOTAL:</span><span>$${total.toLocaleString()}</span>
+              </div>
+              <div style="text-align:center; margin-top:8px; font-size:9px;">¡Gracias por su compra!</div>
+          `;
+
+          document.body.classList.add('print-ticket');
+          setTimeout(() => {
+              window.print();
+              document.body.classList.remove('print-ticket');
+          }, 300);
+      }
+
+      // CONSULTA DE CIERRE DE CAJA
+      async function fetchClosingData() {
+          let query = supabaseClient.from('sales').select('*').order('created_at', { ascending: false });
+
+          // Si es cajero, filtra ÚNICAMENTE por sus ventas
+          if (currentUserRole !== 'admin') {
+              query = query.eq('cashier', currentUsername);
+              document.getElementById('closing-subtitle').innerText = `Ventas realizadas por el cajero: ${currentUsername}`;
+          } else {
+              document.getElementById('closing-subtitle').innerText = `Todas las ventas registradas en el sistema`;
+          }
+
+          const { data, error } = await query;
+          if (error) return console.error(error);
+
+          let cashTotal = 0, cardTotal = 0, grandTotal = 0;
+          const tbody = document.getElementById('closing-sales-table');
+          tbody.innerHTML = '';
+
+          (data || []).forEach(s => {
+              const amt = parseFloat(s.total) || 0;
+              grandTotal += amt;
+              if (s.payment_method === 'cash') cashTotal += amt;
+              else cardTotal += amt;
+
+              tbody.innerHTML += `
+                  <tr class="border-b border-gray-700">
+                      <td class="py-2">#${s.id}</td>
+                      <td class="py-2">${s.cashier}</td>
+                      <td class="py-2"><span class="px-2 py-0.5 rounded text-xs ${s.payment_method === 'cash' ? 'bg-green-900 text-green-300' : 'bg-blue-900 text-blue-300'}">${s.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</span></td>
+                      <td class="py-2 text-right font-bold">$${amt.toLocaleString()}</td>
+                      <td class="py-2 text-xs text-gray-400 text-right">${new Date(s.created_at).toLocaleTimeString()}</td>
+                  </tr>`;
+          });
+
+          document.getElementById('closing-cash').innerText = `$${cashTotal.toLocaleString()}`;
+          document.getElementById('closing-card').innerText = `$${cardTotal.toLocaleString()}`;
+          document.getElementById('closing-total').innerText = `$${grandTotal.toLocaleString()}`;
+
+          lastClosingData = {
+              cash: cashTotal,
+              card: cardTotal,
+              total: grandTotal,
+              count: (data || []).length,
+              cashier: currentUserRole === 'admin' ? 'TODOS (ADMIN)' : currentUsername
+          };
+      }
+
+      // IMPRIMIR CIERRE DE CAJA
+      function printClosingReport() {
+          if (lastClosingData.count === 0) return alert('No hay ventas registradas para este cierre.');
+
+          const ticketDiv = document.getElementById('printable-ticket');
+          const dateStr = new Date().toLocaleString();
+
+          ticketDiv.innerHTML = `
+              <div style="text-align:center; font-weight:bold; margin-bottom:5px;">
+                  <h2 style="font-size:14px; margin:0;">CIERRE DE CAJA</h2>
+                  <p style="font-size:10px; margin:2px 0;">KEV NAY POS</p>
+              </div>
+              <p style="font-size:10px; margin:2px 0;"><b>Fecha:</b> ${dateStr}</p>
+              <p style="font-size:10px; margin:2px 0;"><b>Cajero:</b> ${lastClosingData.cashier}</p>
+              <p style="font-size:10px; margin:2px 0;"><b>Ventas registradas:</b> ${lastClosingData.count}</p>
+              <hr style="border-top:1px dashed #000; margin:5px 0;">
+              <div style="display:flex; justify-content:space-between; font-size:10px;">
+                  <span>Total Efectivo:</span><span>$${lastClosingData.cash.toLocaleString()}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:10px;">
+                  <span>Total Tarjeta:</span><span>$${lastClosingData.card.toLocaleString()}</span>
+              </div>
+              <hr style="border-top:1px dashed #000; margin:5px 0;">
+              <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:12px;">
+                  <span>TOTAL RECAUDADO:</span><span>$${lastClosingData.total.toLocaleString()}</span>
+              </div>
+              <div style="text-align:center; margin-top:15px; font-size:9px;">Firma del Cajero: _________________</div>
+          `;
+
+          document.body.classList.add('print-ticket');
+          setTimeout(() => {
+              window.print();
+              document.body.classList.remove('print-ticket');
+          }, 300);
+      }
+
+      async function openNewProductModal() {
+          const name = prompt('Nombre del producto:');
+          if (!name) return;
+          let code = prompt('Código de barras / SKU (Déjalo vacío para autogenerar):');
+          if (!code) code = '770' + Math.floor(100000 + Math.random() * 900000);
+          const cost_price = parseFloat(prompt('Costo de compra ($):') || 0);
+          const price = parseFloat(prompt('Precio de venta ($):'));
+          const stock = parseInt(prompt('Stock inicial:') || 0);
+
+          if (isNaN(price)) return alert('El precio de venta es obligatorio.');
+
+          const { error } = await supabaseClient.from('products').insert([{ name, code, cost_price, price, stock }]);
+          if (error) alert('Error: ' + error.message);
+          else { alert('Producto guardado.'); fetchProducts(); }
+      }
+
       async function openNewCustomerModal() {
           const name = prompt('Nombre completo del cliente:');
           if (!name) return;
@@ -354,36 +568,27 @@
           else { alert('Cliente registrado.'); fetchCustomers(); }
       }
 
-      function addToCart(productId) {
-          const product = products.find(p => p.id === productId);
-          const existing = cart.find(i => i.id === productId);
-          if (existing) existing.qty < product.stock ? existing.qty++ : alert('Sin stock.');
-          else cart.push({ ...product, qty: 1 });
-          renderCart();
-      }
-
-      function renderCart() {
-          const container = document.getElementById('cart-items');
-          container.innerHTML = '';
-          let subtotal = 0;
-          cart.forEach(item => {
-              subtotal += item.price * item.qty;
-              container.innerHTML += `<div class="flex justify-between items-center bg-gray-900 p-2 rounded border border-gray-700 text-sm">
-                  <div><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-400">$${item.price} x ${item.qty}</p></div></div>`;
+      async function fetchUsers() {
+          const { data } = await supabaseClient.from('app_users').select('*').order('created_at', { ascending: false });
+          const tbody = document.getElementById('users-table-body');
+          tbody.innerHTML = '';
+          (data || []).forEach(u => {
+              tbody.innerHTML += `<tr><td class="py-3">${u.username}</td><td><span class="bg-gray-700 px-2 rounded text-xs">${u.role}</span></td><td class="text-gray-400 text-xs">${new Date(u.created_at).toLocaleDateString()}</td></tr>`;
           });
-          
-          const discountPct = parseFloat(document.getElementById('cart-discount').value) || 0;
-          const discountAmount = subtotal * (discountPct / 100);
-          const total = Math.max(0, subtotal - discountAmount);
-
-          document.getElementById('cart-subtotal').innerText = `$${subtotal.toLocaleString()}`;
-          document.getElementById('cart-total').innerText = `$${total.toLocaleString()}`;
       }
 
-      async function processSale(method) {
-          if (cart.length === 0) return alert('Carrito vacío.');
-          alert(`Simulación: Venta registrada por ${currentUsername} en ${method}. Total: ${document.getElementById('cart-total').innerText}`);
-          cart = []; renderCart();
+      async function openNewUserModal() {
+          const username = prompt('Nombre del usuario (ej: cajero1):');
+          if(!username) return;
+          const pass = prompt('Contraseña:');
+          if(!pass) return;
+          const role = prompt('Rol ("admin" o "cajero"):').toLowerCase();
+          if(role !== 'admin' && role !== 'cajero') return alert('Rol inválido.');
+
+          const password_hash = await hashSHA256(pass);
+          const { error } = await supabaseClient.from('app_users').insert([{ username: username.toLowerCase().trim(), password_hash, role }]);
+          if(error) alert('Error: ' + error.message);
+          else { alert('Usuario creado.'); fetchUsers(); }
       }
 
       function toggleAllInv() {
