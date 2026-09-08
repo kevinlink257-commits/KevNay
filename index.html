@@ -33,15 +33,17 @@
       <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-96 border border-gray-700">
           <div class="flex justify-center mb-4"><i class="fa-solid fa-user-lock text-red-500 text-4xl"></i></div>
           <h2 class="text-2xl font-bold mb-6 text-center text-white">Acceso al Sistema</h2>
-          <div class="mb-4">
-              <label class="block text-xs text-gray-400 mb-1">Usuario:</label>
-              <input type="text" id="login-user" class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white">
-          </div>
-          <div class="mb-6">
-              <label class="block text-xs text-gray-400 mb-1">Contraseña:</label>
-              <input type="password" id="login-pass" class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white">
-          </div>
-          <button onclick="handleLogin()" class="w-full bg-red-600 hover:bg-red-500 py-2 rounded-lg font-bold text-white transition">Ingresar</button>
+          <form onsubmit="event.preventDefault(); handleLogin();">
+              <div class="mb-4">
+                  <label class="block text-xs text-gray-400 mb-1">Usuario:</label>
+                  <input type="text" id="login-user" required class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500">
+              </div>
+              <div class="mb-6">
+                  <label class="block text-xs text-gray-400 mb-1">Contraseña:</label>
+                  <input type="password" id="login-pass" required class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500">
+              </div>
+              <button type="submit" class="w-full bg-red-600 hover:bg-red-500 py-2 rounded-lg font-bold text-white transition">Ingresar</button>
+          </form>
       </div>
   </div>
 
@@ -151,7 +153,7 @@
           </table>
       </section>
 
-      <!-- VISTA USUARIOS (NUEVO) -->
+      <!-- VISTA USUARIOS -->
       <section id="view-users" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
           <div class="flex justify-between items-center mb-6">
               <h2 class="text-xl font-bold"><i class="fa-solid fa-user-shield mr-2"></i>Gestión de Usuarios</h2>
@@ -180,11 +182,10 @@
       const SUPABASE_URL = 'https://cjoqtnpqcantwmghagsv.supabase.co';
       const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqb3F0bnBxY2FudHdtZ2hhZ3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MDIwMzIsImV4cCI6MjEwMjk3ODAzMn0.rV3SK1qTF_QuIImRNmrgHo0zQvdgZqvzgLCPOwAk9Ek';
       let supabaseClient = null;
-      try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e){ console.error("Error BD"); }
+      try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e){ console.error("Error inicializando Supabase:", e); }
 
       let products = [], customers = [], cart = [], systemUsers = [], currentUserRole = null, currentUsername = null;
 
-      // === SISTEMA DE LOGIN Y HASH ===
       async function hashSHA256(text) {
           const msgBuffer = new TextEncoder().encode(text);
           const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -193,15 +194,27 @@
       }
 
       async function handleLogin() {
-          const user = document.getElementById('login-user').value.trim();
+          const user = document.getElementById('login-user').value.trim().toLowerCase();
           const pass = document.getElementById('login-pass').value.trim();
           if(!user || !pass) return alert('Llene todos los campos.');
 
           const hashedPass = await hashSHA256(pass);
 
           try {
-              const { data, error } = await supabaseClient.from('app_users').select('*').eq('username', user).single();
-              if (error || !data) return alert('Usuario no encontrado.');
+              const { data, error } = await supabaseClient
+                  .from('app_users')
+                  .select('*')
+                  .eq('username', user)
+                  .maybeSingle();
+
+              if (error) {
+                  console.error("Error Supabase:", error);
+                  return alert('Error de permisos o conexión a la BD: ' + error.message);
+              }
+
+              if (!data) {
+                  return alert('El usuario no ha sido creado en la base de datos.');
+              }
 
               if (data.password_hash === hashedPass) {
                   currentUserRole = data.role;
@@ -211,17 +224,19 @@
                   applyRolePermissions();
                   fetchInitialData();
               } else {
-                  alert('Contraseña incorrecta');
+                  alert('Contraseña incorrecta.');
               }
           } catch (err) {
-              alert('Error de conexión a la base de datos.');
+              console.error(err);
+              alert('Error inesperado al conectar.');
           }
       }
 
       function applyRolePermissions() {
           const adminOnlyIds = ['btn-inventory', 'btn-generator', 'btn-closing', 'btn-users'];
           adminOnlyIds.forEach(id => {
-              document.getElementById(id).style.display = (currentUserRole === 'admin') ? 'block' : 'none';
+              const el = document.getElementById(id);
+              if (el) el.style.display = (currentUserRole === 'admin') ? 'block' : 'none';
           });
           switchTab('pos');
       }
@@ -239,19 +254,18 @@
               if (view) view.classList.add('hidden');
               if (btn) btn.className = btn.className.replace('bg-red-600 text-white', 'bg-gray-700 text-gray-300');
           });
-          document.getElementById(`view-${tab}`).classList.remove('hidden');
+          const targetView = document.getElementById(`view-${tab}`);
           const activeBtn = document.getElementById(`btn-${tab}`);
+          if(targetView) targetView.classList.remove('hidden');
           if(activeBtn) activeBtn.className = activeBtn.className.replace('bg-gray-700 text-gray-300', 'bg-red-600 text-white');
       }
 
-      // === FETCH DATOS ===
       async function fetchInitialData() {
           await fetchProducts();
           await fetchCustomers();
           if (currentUserRole === 'admin') await fetchUsers();
       }
 
-      // === USUARIOS (CREACIÓN) ===
       async function fetchUsers() {
           const { data } = await supabaseClient.from('app_users').select('*').order('created_at', { ascending: false });
           systemUsers = data || [];
@@ -271,13 +285,12 @@
           if(role !== 'admin' && role !== 'cajero') return alert('Rol inválido. Debe ser "admin" o "cajero".');
 
           const password_hash = await hashSHA256(pass);
-          const { error } = await supabaseClient.from('app_users').insert([{ username, password_hash, role }]);
+          const { error } = await supabaseClient.from('app_users').insert([{ username: username.toLowerCase().trim(), password_hash, role }]);
           
           if(error) alert('Error: ' + error.message);
           else { alert('Usuario creado exitosamente.'); fetchUsers(); }
       }
 
-      // === PRODUCTOS E INVENTARIO ===
       async function fetchProducts() {
           const { data } = await supabaseClient.from('products').select('*').order('name');
           products = data || [];
@@ -294,10 +307,10 @@
           const price = parseFloat(prompt('Precio de venta ($):'));
           const stock = parseInt(prompt('Stock inicial:') || 0);
 
-          if (isNaN(price)) return alert('El precio de venta es obligatorio y debe ser número.');
+          if (isNaN(price)) return alert('El precio de venta es obligatorio.');
 
           const { error } = await supabaseClient.from('products').insert([{ name, code, cost_price, price, stock }]);
-          if (error) alert('Error al guardar: ' + error.message);
+          if (error) alert('Error: ' + error.message);
           else { alert('Producto guardado.'); fetchProducts(); }
       }
 
@@ -316,7 +329,6 @@
       }
       function renderProductGrid() { filterProducts(''); }
 
-      // === CLIENTES ===
       async function fetchCustomers() {
           const { data } = await supabaseClient.from('customers').select('*').order('name');
           customers = data || [];
@@ -338,11 +350,10 @@
           const cedula = prompt('Cédula o NIT (opcional):');
 
           const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula }]);
-          if (error) alert('Error al guardar: ' + error.message);
+          if (error) alert('Error: ' + error.message);
           else { alert('Cliente registrado.'); fetchCustomers(); }
       }
 
-      // === CARRITO Y VENTA ===
       function addToCart(productId) {
           const product = products.find(p => p.id === productId);
           const existing = cart.find(i => i.id === productId);
@@ -375,7 +386,6 @@
           cart = []; renderCart();
       }
 
-      // === IMPRESIÓN CARTAS Y CÓDIGOS ===
       function toggleAllInv() {
           const check = document.getElementById('selectAllInv').checked;
           document.querySelectorAll('.inv-chk').forEach(cb => cb.checked = check);
