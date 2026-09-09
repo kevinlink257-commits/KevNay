@@ -3,64 +3,90 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kev Nay - Sistema POS & Roles</title>
+  <title>Kev Nay - Sistema POS & Reportes Financieros Avanzados</title>
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- JsBarcode para códigos de barras -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <!-- FontAwesome para iconos -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- EmailJS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <!-- PayPal SDK (se carga con el Client ID configurado dinámicamente) -->
   <style>
       @media print {
           body * { visibility: hidden !important; }
-          body.print-ticket #printable-ticket, body.print-ticket #printable-ticket * { visibility: visible !important; }
-          body.print-ticket #printable-ticket {
-              position: absolute; left: 0; top: 0; width: 58mm; font-family: 'Courier New', Courier, monospace;
-              font-size: 11px; color: black !important; background: white !important;
-              padding: 2mm; display: block !important; text-align: left; line-height: 1.2;
-          }
-          body.print-letter #printable-letter, body.print-letter #printable-letter * { visibility: visible !important; }
-          body.print-letter #printable-letter {
-              position: absolute; left: 0; top: 0; width: 215.9mm;
-              background: white !important; display: flex !important; flex-wrap: wrap; 
-              gap: 10mm; padding: 10mm; align-content: flex-start; justify-content: center;
+          #printable-ticket, #printable-ticket * { visibility: visible !important; }
+          #printable-ticket {
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 50mm;
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 11px;
+              color: black !important;
+              background: white !important;
+              padding: 4mm;
+              display: block !important;
+              text-align: left;
+              line-height: 1.2;
           }
       }
   </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
 
-  <!-- Pantalla de Login -->
-  <div id="login-overlay" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center">
-      <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-96 border border-gray-700">
-          <div class="flex justify-center mb-4"><i class="fa-solid fa-user-lock text-red-500 text-4xl"></i></div>
-          <h2 class="text-2xl font-bold mb-6 text-center text-white">Acceso al Sistema</h2>
-          <form onsubmit="event.preventDefault(); handleLogin();">
-              <div class="mb-4">
-                  <label class="block text-xs text-gray-400 mb-1">Usuario:</label>
-                  <input type="text" id="login-user" required class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500">
+  <!-- ======================= PANTALLA DE LOGIN ======================= -->
+  <div id="login-screen" class="fixed inset-0 z-50 bg-gray-900 flex items-center justify-center">
+      <div class="bg-gray-800 p-8 rounded-2xl border border-gray-700 shadow-2xl w-full max-w-sm">
+          <div class="text-center mb-6">
+              <i class="fa-solid fa-scorpion text-red-500 text-4xl mb-2"></i>
+              <h1 class="text-2xl font-bold tracking-wider">KEV NAY</h1>
+              <p class="text-xs text-red-400 font-normal">POS & Cloud Hub</p>
+          </div>
+          <div class="space-y-4">
+              <div>
+                  <label class="block text-xs text-gray-400 mb-1 font-medium">Usuario:</label>
+                  <select id="login-user" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-red-500">
+                      <option value="admin">Administrador</option>
+                      <option value="cajero">Cajero</option>
+                  </select>
               </div>
-              <div class="mb-6">
-                  <label class="block text-xs text-gray-400 mb-1">Contraseña:</label>
-                  <input type="password" id="login-pass" required class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500">
+              <div>
+                  <label class="block text-xs text-gray-400 mb-1 font-medium">Contraseña:</label>
+                  <input type="password" id="login-pass" placeholder="Ingrese su contraseña..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-red-500" onkeypress="if(event.key==='Enter') doLogin()">
               </div>
-              <button type="submit" class="w-full bg-red-600 hover:bg-red-500 py-2 rounded-lg font-bold text-white transition">Ingresar</button>
-          </form>
+              <button onclick="doLogin()" class="w-full bg-red-600 hover:bg-red-500 py-2.5 rounded-lg font-bold text-white transition">
+                  <i class="fa-solid fa-right-to-bracket mr-2"></i>Ingresar
+              </button>
+              <p id="login-error" class="text-red-400 text-xs text-center hidden">Contraseña incorrecta. Intente de nuevo.</p>
+          </div>
+          <div class="mt-6 pt-4 border-t border-gray-700 text-center">
+              <p class="text-xs text-gray-500">Contraseñas por defecto:<br>Admin: <span class="text-gray-300 font-mono">admin123</span> | Cajero: <span class="text-gray-300 font-mono">cajero123</span></p>
+          </div>
       </div>
   </div>
+
+  <!-- ======================= APP PRINCIPAL ======================= -->
+  <div id="app-main" class="hidden flex-1 flex-col">
 
   <!-- Navbar -->
   <header class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center shadow-md">
       <div class="flex items-center space-x-3">
           <i class="fa-solid fa-scorpion text-red-500 text-2xl"></i>
-          <h1 class="text-xl font-bold tracking-wider">KEV NAY <span class="text-xs text-red-400 font-normal" id="user-role-display">POS</span></h1>
+          <h1 class="text-xl font-bold tracking-wider">KEV NAY <span class="text-xs text-red-400 font-normal">POS & Cloud Hub</span></h1>
+          <span id="user-badge" class="ml-3 text-xs bg-gray-700 px-2 py-1 rounded-full text-gray-300"></span>
       </div>
-      <nav class="flex space-x-2 flex-wrap gap-y-2" id="main-nav">
-          <button onclick="switchTab('pos')" id="btn-pos" class="px-3 py-2 bg-red-600 text-white rounded-lg font-medium transition"><i class="fa-solid fa-cash-register mr-1"></i>Caja</button>
-          <button onclick="switchTab('inventory')" id="btn-inventory" class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition"><i class="fa-solid fa-boxes-stacked mr-1"></i>Inventario</button>
-          <button onclick="switchTab('generator')" id="btn-generator" class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition"><i class="fa-solid fa-barcode mr-1"></i>Generador</button>
-          <button onclick="switchTab('customers')" id="btn-customers" class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition"><i class="fa-solid fa-users mr-1"></i>Clientes</button>
-          <button onclick="switchTab('closing')" id="btn-closing" class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition"><i class="fa-solid fa-chart-pie mr-1"></i>Cierre</button>
-          <button onclick="switchTab('users')" id="btn-users" class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition"><i class="fa-solid fa-user-shield mr-1"></i>Usuarios</button>
-          <button onclick="logout()" class="px-3 py-2 bg-gray-900 text-red-400 border border-red-500 rounded-lg font-medium hover:bg-red-900"><i class="fa-solid fa-right-from-bracket"></i></button>
+      <nav class="flex space-x-2 flex-wrap gap-y-2">
+          <button onclick="switchTab('pos')" id="btn-pos" class="px-4 py-2 bg-red-600 text-white rounded-lg font-medium transition hover:bg-red-500"><i class="fa-solid fa-cash-register mr-2"></i>Caja / POS</button>
+          <button onclick="switchTab('inventory')" id="btn-inventory" class="admin-only px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-boxes-stacked mr-2"></i>Inventario</button>
+          <button onclick="switchTab('generator')" id="btn-generator" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-barcode mr-2"></i>Generador Rápido</button>
+          <button onclick="switchTab('customers')" id="btn-customers" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-users mr-2"></i>Clientes & Historial</button>
+          <button onclick="switchTab('closing')" id="btn-closing" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes & Cierre</button>
+          <button onclick="switchTab('config')" id="btn-config" class="admin-only px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-gray-600"><i class="fa-solid fa-gear mr-2"></i>Configuración</button>
+          <button onclick="doLogout()" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium transition hover:bg-red-900"><i class="fa-solid fa-right-from-bracket mr-2"></i>Salir</button>
       </nav>
   </header>
 
@@ -75,24 +101,53 @@
               </div>
               <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto flex-1 pr-2"></div>
           </div>
+
           <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 flex flex-col h-[75vh] justify-between">
               <div>
-                  <h2 class="text-lg font-bold mb-3 border-b border-gray-700 pb-2"><i class="fa-solid fa-cart-shopping mr-2"></i>Venta</h2>
-                  <select id="sale-customer" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white mb-3">
-                      <option value="">Cliente General / Mostrador</option>
-                  </select>
-                  <div id="cart-items" class="space-y-2 overflow-y-auto max-h-[22vh] pr-2"><p class="text-gray-500 text-center py-4">El carrito está vacío</p></div>
+                  <h2 class="text-lg font-bold mb-3 border-b border-gray-700 pb-2"><i class="fa-solid fa-cart-shopping mr-2"></i>Venta Actual</h2>
+                  <div class="mb-3">
+                      <label class="block text-xs text-gray-400 mb-1">Cliente:</label>
+                      <select id="sale-customer" class="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white">
+                          <option value="">Cliente General / Mostrador</option>
+                      </select>
+                  </div>
+                  <div id="cart-items" class="space-y-2 overflow-y-auto max-h-[22vh] pr-2">
+                      <p class="text-gray-500 text-center py-4">El carrito está vacío</p>
+                  </div>
               </div>
               <div class="border-t border-gray-700 pt-3 space-y-2">
-                  <div class="flex justify-between text-sm"><span>Subtotal:</span><span id="cart-subtotal">$0</span></div>
-                  <div class="flex justify-between text-sm items-center">
-                      <span>Descuento (%):</span><input type="number" id="cart-discount" value="0" class="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                  <div class="flex justify-between text-sm">
+                      <span>Subtotal:</span>
+                      <span id="cart-subtotal">$0.00</span>
                   </div>
-                  <div class="flex justify-between text-lg font-bold"><span>Total:</span><span id="cart-total" class="text-red-400">$0</span></div>
-                  <div class="grid grid-cols-2 gap-2 pt-2">
+                  <div class="flex justify-between text-sm items-center">
+                      <span>Descuento ($):</span>
+                      <input type="number" id="cart-discount" value="0" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                  </div>
+                  <div class="flex justify-between text-sm items-center">
+                      <span>IVA (%):</span>
+                      <input type="number" id="cart-vat-rate" value="19" class="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-white" oninput="renderCart()">
+                  </div>
+                  <div class="flex justify-between text-lg font-bold">
+                      <span>Total:</span>
+                      <span id="cart-total" class="text-red-400">$0.00</span>
+                  </div>
+                  <!-- Calculadora rápida de Vuelto -->
+                  <div class="bg-gray-900 p-2 rounded border border-gray-700 text-xs space-y-1">
+                      <div class="flex justify-between items-center">
+                          <span class="text-gray-400">Efectivo Recibido:</span>
+                          <input type="number" id="cash-received" placeholder="0" class="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-right text-white" oninput="calculateChange()">
+                      </div>
+                      <div class="flex justify-between font-bold">
+                          <span class="text-gray-400">Cambio / Vuelto:</span>
+                          <span id="cash-change" class="text-green-400">$0.00</span>
+                      </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 pt-1">
                       <button onclick="processSale('cash')" class="w-full bg-green-600 hover:bg-green-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-money-bill-wave mr-1"></i>Efectivo</button>
                       <button onclick="processSale('card')" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-credit-card mr-1"></i>Tarjeta</button>
                   </div>
+                  <button onclick="openPayPalModal()" class="w-full bg-yellow-500 hover:bg-yellow-400 py-2 rounded-lg font-bold text-black transition"><i class="fa-brands fa-paypal mr-1"></i>Pagar con PayPal</button>
               </div>
           </div>
       </section>
@@ -100,246 +155,804 @@
       <!-- VISTA INVENTARIO -->
       <section id="view-inventory" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
           <div class="flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold"><i class="fa-solid fa-boxes-stacked mr-2"></i>Inventario</h2>
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-boxes-stacked mr-2"></i>Control de Inventario, Costos & Códigos de Barras</h2>
               <div class="flex space-x-2">
-                  <button onclick="printInventoryBarcodesLetter()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Seleccionados</button>
                   <button onclick="openNewProductModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-plus mr-2"></i>Nuevo Producto</button>
               </div>
           </div>
-          <table class="w-full text-left border-collapse">
-              <thead>
-                  <tr class="border-b border-gray-700 text-gray-400 text-sm">
-                      <th class="py-3 px-2 text-center"><input type="checkbox" id="selectAllInv" onclick="toggleAllInv()"></th>
-                      <th class="py-3 px-4">Producto</th>
-                      <th class="py-3 px-4">Código</th>
-                      <th class="py-3 px-4">Código de Barras</th>
-                      <th class="py-3 px-4">Costo / Precio</th>
-                      <th class="py-3 px-4">Stock</th>
-                  </tr>
-              </thead>
-              <tbody id="inventory-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
-          </table>
-      </section>
-
-      <!-- VISTA GENERADOR -->
-      <section id="view-generator" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto w-full">
-          <div class="border-b border-gray-700 pb-3 flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold"><i class="fa-solid fa-barcode mr-2"></i>Generador Múltiple</h2>
-              <button onclick="printLiveBarcodesLetter()" class="bg-red-600 px-6 py-2 rounded-lg font-bold text-white"><i class="fa-solid fa-print mr-2"></i>Imprimir Hoja</button>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div class="md:col-span-1 space-y-4">
-                  <textarea id="live-barcode-input" rows="8" placeholder="Escribe un código por línea..." class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-red-500" oninput="generateMultipleLiveBarcodes()"></textarea>
-                  <select id="live-barcode-format" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white" onchange="generateMultipleLiveBarcodes()">
-                      <option value="CODE128">CODE 128 (Estándar)</option>
-                      <option value="EAN13">EAN-13</option>
-                  </select>
-              </div>
-              <div class="md:col-span-2 bg-gray-900 p-4 rounded-xl border border-gray-700 max-h-[60vh] overflow-y-auto">
-                  <div id="live-barcode-container" class="flex flex-wrap gap-4 justify-center"></div>
-              </div>
-          </div>
-      </section>
-
-      <!-- VISTA CLIENTES -->
-      <section id="view-customers" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <div class="flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold"><i class="fa-solid fa-users mr-2"></i>Clientes</h2>
-              <button onclick="openNewCustomerModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-user-plus mr-2"></i>Nuevo Cliente</button>
-          </div>
-          <table class="w-full text-left border-collapse">
-              <thead><tr class="border-b border-gray-700 text-gray-400 text-sm"><th>Nombre</th><th>Teléfono</th><th>Cédula/NIT</th></tr></thead>
-              <tbody id="customers-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
-          </table>
-      </section>
-
-      <!-- VISTA CIERRE DE CAJA -->
-      <section id="view-closing" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-6">
-          <div class="flex justify-between items-center border-b border-gray-700 pb-4">
-              <div>
-                  <h2 class="text-xl font-bold"><i class="fa-solid fa-chart-pie mr-2"></i>Cierre de Caja</h2>
-                  <p class="text-xs text-gray-400 mt-1" id="closing-subtitle">Resumen de ventas del cajero</p>
-              </div>
-              <button onclick="printClosingReport()" class="bg-green-600 hover:bg-green-500 px-5 py-2 rounded-lg font-bold text-white transition">
-                  <i class="fa-solid fa-print mr-2"></i>Imprimir Cierre
-              </button>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
-                  <p class="text-xs text-gray-400">Efectivo Recaudado</p>
-                  <p class="text-2xl font-bold text-green-400" id="closing-cash">$0</p>
-              </div>
-              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
-                  <p class="text-xs text-gray-400">Tarjeta Recaudado</p>
-                  <p class="text-2xl font-bold text-blue-400" id="closing-card">$0</p>
-              </div>
-              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
-                  <p class="text-xs text-gray-400">Total General</p>
-                  <p class="text-2xl font-bold text-red-400" id="closing-total">$0</p>
-              </div>
-          </div>
-
-          <div>
-              <h3 class="text-md font-bold mb-3 text-gray-300">Historial de Ventas</h3>
+          <div class="overflow-x-auto">
               <table class="w-full text-left border-collapse">
                   <thead>
-                      <tr class="border-b border-gray-700 text-gray-400 text-xs">
-                          <th class="py-2">Venta ID</th>
-                          <th class="py-2">Cajero</th>
-                          <th class="py-2">Método</th>
-                          <th class="py-2 text-right">Total</th>
-                          <th class="py-2 text-right">Hora</th>
+                      <tr class="border-b border-gray-700 text-gray-400 text-sm">
+                          <th class="py-3 px-4">Imagen</th>
+                          <th class="py-3 px-4">Producto</th>
+                          <th class="py-3 px-4">SKU / Código</th>
+                          <th class="py-3 px-4">Código de Barras</th>
+                          <th class="py-3 px-4">Costo Compra</th>
+                          <th class="py-3 px-4">Precio Venta</th>
+                          <th class="py-3 px-4">Stock</th>
+                          <th class="py-3 px-4 text-center">Acciones</th>
                       </tr>
                   </thead>
-                  <tbody id="closing-sales-table" class="divide-y divide-gray-700 text-sm"></tbody>
+                  <tbody id="inventory-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
               </table>
           </div>
       </section>
 
-      <!-- VISTA USUARIOS -->
-      <section id="view-users" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <div class="flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold"><i class="fa-solid fa-user-shield mr-2"></i>Gestión de Usuarios</h2>
-              <button onclick="openNewUserModal()" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-user-plus mr-2"></i>Crear Usuario</button>
+      <!-- VISTA GENERADOR RÁPIDO DE CÓDIGOS DE BARRAS -->
+      <section id="view-generator" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-xl mx-auto w-full text-center space-y-6">
+          <div class="border-b border-gray-700 pb-3">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-barcode mr-2"></i>Generador Automático de Códigos de Barras</h2>
+              <p class="text-xs text-gray-400 mt-1">Escribe cualquier código o texto para generar y visualizar barras al instante.</p>
           </div>
-          <table class="w-full text-left border-collapse">
-              <thead><tr class="border-b border-gray-700 text-gray-400 text-sm"><th>Usuario</th><th>Rol</th><th>Fecha Creación</th></tr></thead>
-              <tbody id="users-table-body" class="divide-y divide-gray-700 text-sm"></tbody>
-          </table>
+          <div class="space-y-4">
+              <div>
+                  <label class="block text-xs text-gray-400 mb-2 font-medium">Texto o Código SKU:</label>
+                  <input type="text" id="live-barcode-input" placeholder="Ej. KEVNAY-001" value="KEVNAY-12345" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-center text-lg text-white focus:outline-none focus:border-red-500" oninput="generateLiveBarcode()">
+              </div>
+              <div class="flex justify-center gap-4 text-xs">
+                  <div>
+                      <label class="text-gray-400 block mb-1">Formato:</label>
+                      <select id="live-barcode-format" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white" onchange="generateLiveBarcode()">
+                          <option value="CODE128">CODE 128 (Estándar)</option>
+                          <option value="EAN13">EAN-13</option>
+                          <option value="UPC">UPC</option>
+                          <option value="CODE39">CODE 39</option>
+                      </select>
+                  </div>
+              </div>
+              <div class="bg-gray-900 p-6 rounded-xl border border-gray-700 flex flex-col items-center justify-center space-y-4">
+                  <svg id="live-barcode-svg" class="max-w-full bg-white p-3 rounded"></svg>
+                  <button onclick="printLiveBarcode()" class="bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-print mr-2"></i>Imprimir Código de Barras</button>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA CLIENTES E HISTORIAL -->
+      <section id="view-customers" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-6">
+          <div class="flex justify-between items-center">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-users mr-2"></i>Clientes y Compras Realizadas</h2>
+              <button onclick="openNewCustomerModal()" class="admin-only bg-red-600 hover:bg-red-500 px-4 py-2 rounded-lg font-medium text-white transition"><i class="fa-solid fa-user-plus mr-2"></i>Nuevo Cliente</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 overflow-y-auto max-h-[60vh]">
+                  <h3 class="font-bold text-sm mb-3 text-gray-400">Seleccionar Cliente:</h3>
+                  <div id="customer-list-buttons" class="space-y-2"></div>
+              </div>
+              <div class="md:col-span-2 bg-gray-900 p-4 rounded-lg border border-gray-700 flex flex-col justify-between">
+                  <div>
+                      <div class="flex justify-between items-center mb-3">
+                          <h3 id="selected-customer-title" class="font-bold text-md text-red-400">Seleccione un cliente para ver su historial</h3>
+                          <button id="btn-edit-selected-customer" onclick="editCurrentSelectedCustomer()" class="hidden admin-only bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-xs text-white font-medium"><i class="fa-solid fa-pen-to-square mr-1"></i>Editar Cliente</button>
+                      </div>
+                      <div class="overflow-x-auto max-h-[40vh] overflow-y-auto">
+                          <table class="w-full text-left border-collapse">
+                              <thead>
+                                  <tr class="border-b border-gray-700 text-gray-400 text-xs">
+                                      <th class="py-2 px-3">Fecha y Hora</th>
+                                      <th class="py-2 px-3">Método</th>
+                                      <th class="py-2 px-3">Total</th>
+                                      <th class="py-2 px-3 text-center">Acción</th>
+                                  </tr>
+                              </thead>
+                              <tbody id="customer-purchases-body" class="divide-y divide-gray-700 text-sm">
+                                  <tr><td colspan="4" class="text-center py-4 text-gray-500">Ningún cliente seleccionado</td></tr>
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA REPORTES Y CIERRE DE CAJA -->
+      <section id="view-closing" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-4xl mx-auto w-full space-y-6">
+          <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+              <h2 class="text-xl font-bold"><i class="fa-solid fa-chart-pie mr-2"></i>Reportes Financieros, Contabilidad & Cierre</h2>
+              <div class="space-x-2 flex">
+                  <button onclick="registerCashMovement()" class="bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"><i class="fa-solid fa-wallet mr-1"></i>Ingreso/Gasto</button>
+                  <button onclick="exportSalesToCSV()" class="bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"><i class="fa-solid fa-file-excel mr-1"></i>Exportar Excel</button>
+                  <button onclick="sendReportByEmail()" class="bg-purple-600 hover:bg-purple-500 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition"><i class="fa-solid fa-envelope mr-1"></i>Enviar por Correo</button>
+              </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-3">
+                  <h3 class="font-bold text-sm text-gray-300">Parámetros de Caja y Auditoría</h3>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Efectivo Inicial en Caja:</label>
+                      <input type="number" id="closing-initial-cash" value="50000" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" oninput="calculateClosingPreview()">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Efectivo Real Contado en Gaveta:</label>
+                      <input type="number" id="closing-actual-cash" placeholder="0" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white" oninput="calculateClosingPreview()">
+                  </div>
+                  <button onclick="generateCashClosingReport()" class="w-full bg-red-600 hover:bg-red-500 py-3 rounded-lg font-bold text-white transition mt-2"><i class="fa-solid fa-print mr-2"></i>Generar Cierre Financiero (50mm)</button>
+                  <button onclick="generateCashClosingReport(true)" class="w-full bg-purple-600 hover:bg-purple-500 py-2 rounded-lg font-bold text-white transition"><i class="fa-solid fa-envelope mr-2"></i>Cierre + Enviar por Correo</button>
+              </div>
+
+              <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 flex flex-col justify-between">
+                  <h3 class="font-bold text-sm text-gray-300 mb-2"><i class="fa-solid fa-calculator mr-1"></i>Panel Contable (Sesión Actual)</h3>
+                  <div class="space-y-2 my-auto text-xs">
+                      <div class="flex justify-between"><span>Ventas en Efectivo:</span><span id="prev-cash-val" class="font-bold text-green-400">$0</span></div>
+                      <div class="flex justify-between"><span>Ventas con Tarjeta:</span><span id="prev-card-val" class="font-bold text-blue-400">$0</span></div>
+                      <div class="flex justify-between"><span>Ventas PayPal:</span><span id="prev-paypal-val" class="font-bold text-yellow-400">$0</span></div>
+                      <div class="flex justify-between"><span>Movimientos Caja (Gastos/Ingresos):</span><span id="prev-mov-val" class="font-bold text-yellow-400">$0</span></div>
+                      <div class="flex justify-between border-t border-gray-800 pt-1"><span>Efectivo Esperado en Caja:</span><span id="prev-expected-val" class="font-bold text-white">$0</span></div>
+                      <div class="flex justify-between text-gray-400"><span>Costo Total de Ventas:</span><span id="prev-cost-val" class="text-gray-300">$0</span></div>
+                      <div class="flex justify-between text-sm font-bold bg-gray-800 p-1.5 rounded">
+                          <span class="text-green-400">Utilidad Bruta:</span>
+                          <span id="prev-profit-val" class="text-green-400">$0 (0%)</span>
+                      </div>
+                      <div class="pt-1 border-t border-gray-800 flex justify-between text-sm font-bold">
+                          <span>Total Facturado:</span>
+                          <span id="prev-total-val" class="text-red-400">$0</span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+              <h3 class="font-bold text-sm mb-3 text-gray-300"><i class="fa-solid fa-receipt mr-2"></i>Historial de Ventas Registradas</h3>
+              <div class="overflow-x-auto max-h-48 overflow-y-auto">
+                  <table class="w-full text-left border-collapse text-xs">
+                      <thead>
+                          <tr class="border-b border-gray-700 text-gray-400">
+                              <th class="py-2 px-2">ID Venta</th>
+                              <th class="py-2 px-2">Hora</th>
+                              <th class="py-2 px-2">Método</th>
+                              <th class="py-2 px-2">Total</th>
+                          </tr>
+                      </thead>
+                      <tbody id="closing-sales-list" class="divide-y divide-gray-800">
+                          <tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas en esta sesión.</td></tr>
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      </section>
+
+      <!-- VISTA CONFIGURACIÓN -->
+      <section id="view-config" class="hidden bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-2xl mx-auto w-full space-y-6">
+          <h2 class="text-xl font-bold border-b border-gray-700 pb-2"><i class="fa-solid fa-gear mr-2"></i>Configuración del Sistema</h2>
+
+          <!-- Contraseñas -->
+          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-3">
+              <h3 class="font-bold text-sm text-gray-300"><i class="fa-solid fa-key mr-2"></i>Contraseñas de Usuario</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Cambiar contraseña Admin:</label>
+                      <input type="password" id="config-admin-pass" placeholder="Nueva contraseña admin" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                      <button onclick="saveAdminPassword()" class="mt-2 w-full bg-red-600 hover:bg-red-500 py-1.5 rounded text-sm font-medium text-white transition">Guardar</button>
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Cambiar contraseña Cajero:</label>
+                      <input type="password" id="config-cashier-pass" placeholder="Nueva contraseña cajero" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                      <button onclick="saveCashierPassword()" class="mt-2 w-full bg-red-600 hover:bg-red-500 py-1.5 rounded text-sm font-medium text-white transition">Guardar</button>
+                  </div>
+              </div>
+          </div>
+
+          <!-- EmailJS -->
+          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-3">
+              <h3 class="font-bold text-sm text-gray-300"><i class="fa-solid fa-envelope mr-2"></i>Configuración de Correo (EmailJS)</h3>
+              <p class="text-xs text-gray-400">Regístrate en <span class="text-blue-400">emailjs.com</span>, crea un Service y un Email Template, y pega aquí tus credenciales.</p>
+              <div class="space-y-2">
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Service ID:</label>
+                      <input type="text" id="config-emailjs-service" placeholder="service_xxxxxxx" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Template ID:</label>
+                      <input type="text" id="config-emailjs-template" placeholder="template_xxxxxxx" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Public Key:</label>
+                      <input type="text" id="config-emailjs-key" placeholder="xxxxxxxxxxxxxxx" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Correo destino (donde recibir reportes):</label>
+                      <input type="email" id="config-email-dest" placeholder="tu@email.com" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                  </div>
+                  <button onclick="saveEmailConfig()" class="w-full bg-purple-600 hover:bg-purple-500 py-2 rounded text-sm font-medium text-white transition">Guardar Configuración de Correo</button>
+                  <button onclick="testEmailConfig()" class="w-full bg-gray-700 hover:bg-gray-600 py-2 rounded text-sm font-medium text-white transition"><i class="fa-solid fa-paper-plane mr-1"></i>Enviar Correo de Prueba</button>
+              </div>
+          </div>
+
+          <!-- PayPal -->
+          <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-3">
+              <h3 class="font-bold text-sm text-gray-300"><i class="fa-brands fa-paypal mr-2"></i>Configuración de PayPal</h3>
+              <p class="text-xs text-gray-400">Crea una app en <span class="text-blue-400">developer.paypal.com</span> y pega tu Client ID. Usa sandbox para pruebas.</p>
+              <div class="space-y-2">
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">PayPal Client ID:</label>
+                      <input type="text" id="config-paypal-client-id" placeholder="Axxxxxxxxxxxxxxx" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                  </div>
+                  <div>
+                      <label class="block text-xs text-gray-400 mb-1">Modo:</label>
+                      <select id="config-paypal-mode" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-white text-sm">
+                          <option value="sandbox">Sandbox (Pruebas)</option>
+                          <option value="live">Live (Producción)</option>
+                      </select>
+                  </div>
+                  <button onclick="savePayPalConfig()" class="w-full bg-yellow-500 hover:bg-yellow-400 py-2 rounded text-sm font-bold text-black transition">Guardar Configuración PayPal</button>
+              </div>
+          </div>
+
+          <!-- Estado de configuración -->
+          <div id="config-status" class="text-xs text-center text-gray-400"></div>
       </section>
 
   </main>
 
-  <div id="printable-ticket" style="display:none;"></div>
-  <div id="printable-letter" style="display:none;"></div>
+  </div><!-- /app-main -->
 
+  <!-- Modal PayPal -->
+  <div id="paypal-modal" class="hidden fixed inset-0 z-40 bg-black/60 flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-2xl w-full max-w-md">
+          <div class="flex justify-between items-center mb-4">
+              <h2 class="text-lg font-bold"><i class="fa-brands fa-paypal mr-2 text-yellow-400"></i>Pago con PayPal</h2>
+              <button onclick="closePayPalModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+          </div>
+          <div id="paypal-amount-display" class="text-center mb-4">
+              <p class="text-gray-400 text-sm">Total a pagar:</p>
+              <p id="paypal-total-amount" class="text-3xl font-bold text-yellow-400">$0.00</p>
+          </div>
+          <div id="paypal-button-container"></div>
+          <div id="paypal-error" class="text-red-400 text-xs text-center mt-3 hidden"></div>
+          <div id="paypal-success" class="text-green-400 text-sm text-center mt-3 hidden"><i class="fa-solid fa-check-circle mr-1"></i>¡Pago aprobado! Procesando venta...</div>
+      </div>
+  </div>
+
+  <!-- Contenedor Único y Visible para Impresión (Ticket 50mm) -->
+  <div id="printable-ticket" style="display:none;"></div>
+
+  <!-- Script Principal -->
   <script>
+      // ===================== CONFIGURACIÓN SUPABASE =====================
       const SUPABASE_URL = 'https://cjoqtnpqcantwmghagsv.supabase.co';
       const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqb3F0bnBxY2FudHdtZ2hhZ3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0MDIwMzIsImV4cCI6MjEwMjk3ODAzMn0.rV3SK1qTF_QuIImRNmrgHo0zQvdgZqvzgLCPOwAk9Ek';
+
       let supabaseClient = null;
-      try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e){ console.error(e); }
-
-      let products = [], customers = [], cart = [], currentUserRole = null, currentUsername = null;
-      let lastClosingData = { cash: 0, card: 0, total: 0, count: 0 };
-
-      async function hashSHA256(text) {
-          const msgBuffer = new TextEncoder().encode(text);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-          return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      try {
+          supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } catch (e) {
+          console.error('Error inicializando Supabase:', e);
       }
 
-      async function handleLogin() {
-          const user = document.getElementById('login-user').value.trim().toLowerCase();
-          const pass = document.getElementById('login-pass').value.trim();
-          if(!user || !pass) return alert('Llene todos los campos.');
+      // ===================== ESTADO GLOBAL =====================
+      let products = [];
+      let customers = [];
+      let cart = [];
+      let salesHistory = [];
+      let cashMovements = 0;
+      let currentSelectedCustomer = null;
+      let currentRole = null; // 'admin' o 'cajero'
+      let paypalSdkLoaded = false;
 
-          const hashedPass = await hashSHA256(pass);
+      // ===================== SISTEMA DE LOGIN Y ROLES =====================
 
-          try {
-              const { data, error } = await supabaseClient
-                  .from('app_users')
-                  .select('*')
-                  .eq('username', user)
-                  .maybeSingle();
+      function getAdminPassword() {
+          return localStorage.getItem('kev_nay_admin_pass') || 'admin123';
+      }
+      function getCashierPassword() {
+          return localStorage.getItem('kev_nay_cashier_pass') || 'cajero123';
+      }
 
-              if (error) return alert('Error de conexión o permisos: ' + error.message);
-              if (!data) return alert('El usuario no existe.');
-
-              if (data.password_hash === hashedPass) {
-                  currentUserRole = data.role;
-                  currentUsername = data.username;
-                  document.getElementById('user-role-display').innerText = `(${data.username} - ${data.role.toUpperCase()})`;
-                  document.getElementById('login-overlay').style.display = 'none';
-                  applyRolePermissions();
-                  fetchInitialData();
-              } else {
-                  alert('Contraseña incorrecta.');
-              }
-          } catch (err) {
-              alert('Error al intentar iniciar sesión.');
+      function doLogin() {
+          const user = document.getElementById('login-user').value;
+          const pass = document.getElementById('login-pass').value;
+          const errorEl = document.getElementById('login-error');
+          let valid = false;
+          if (user === 'admin' && pass === getAdminPassword()) {
+              currentRole = 'admin';
+              valid = true;
+          } else if (user === 'cajero' && pass === getCashierPassword()) {
+              currentRole = 'cajero';
+              valid = true;
+          }
+          if (valid) {
+              localStorage.setItem('kev_nay_role', currentRole);
+              document.getElementById('login-screen').classList.add('hidden');
+              document.getElementById('app-main').classList.remove('hidden');
+              document.getElementById('app-main').classList.add('flex');
+              applyRoleVisibility();
+              const badge = document.getElementById('user-badge');
+              badge.innerHTML = `<i class="fa-solid fa-user mr-1"></i>${currentRole === 'admin' ? 'Administrador' : 'Cajero'}`;
+              document.getElementById('login-pass').value = '';
+              errorEl.classList.add('hidden');
+              initApp();
+          } else {
+              errorEl.classList.remove('hidden');
           }
       }
 
-      function applyRolePermissions() {
-          // El cajero ahora SÍ tiene acceso a 'btn-closing'
-          const adminOnlyIds = ['btn-inventory', 'btn-generator', 'btn-users'];
-          adminOnlyIds.forEach(id => {
-              const el = document.getElementById(id);
-              if (el) el.style.display = (currentUserRole === 'admin') ? 'block' : 'none';
-          });
+      function doLogout() {
+          currentRole = null;
+          localStorage.removeItem('kev_nay_role');
+          document.getElementById('app-main').classList.add('hidden');
+          document.getElementById('app-main').classList.remove('flex');
+          document.getElementById('login-screen').classList.remove('hidden');
+          // Reset tabs
           switchTab('pos');
       }
 
-      function logout() {
-          currentUserRole = null; currentUsername = null;
-          document.getElementById('login-overlay').style.display = 'flex';
-          document.getElementById('login-pass').value = '';
+      function applyRoleVisibility() {
+          const adminOnlyEls = document.querySelectorAll('.admin-only');
+          if (currentRole === 'admin') {
+              adminOnlyEls.forEach(el => el.classList.remove('hidden'));
+          } else {
+              adminOnlyEls.forEach(el => el.classList.add('hidden'));
+          }
       }
+
+      // ===================== CONFIGURACIÓN EMAILJS =====================
+
+      function getEmailConfig() {
+          return {
+              serviceId: localStorage.getItem('kev_nay_emailjs_service') || '',
+              templateId: localStorage.getItem('kev_nay_emailjs_template') || '',
+              publicKey: localStorage.getItem('kev_nay_emailjs_key') || '',
+              destEmail: localStorage.getItem('kev_nay_email_dest') || ''
+          };
+      }
+
+      function saveEmailConfig() {
+          const serviceId = document.getElementById('config-emailjs-service').value.trim();
+          const templateId = document.getElementById('config-emailjs-template').value.trim();
+          const publicKey = document.getElementById('config-emailjs-key').value.trim();
+          const destEmail = document.getElementById('config-email-dest').value.trim();
+          if (!serviceId || !templateId || !publicKey) {
+              return alert('Completa Service ID, Template ID y Public Key.');
+          }
+          localStorage.setItem('kev_nay_emailjs_service', serviceId);
+          localStorage.setItem('kev_nay_emailjs_template', templateId);
+          localStorage.setItem('kev_nay_emailjs_key', publicKey);
+          localStorage.setItem('kev_nay_email_dest', destEmail);
+          initEmailJS();
+          alert('Configuración de correo guardada correctamente.');
+          updateConfigStatus();
+      }
+
+      function initEmailJS() {
+          const cfg = getEmailConfig();
+          if (cfg.publicKey && typeof emailjs !== 'undefined') {
+              try { emailjs.init({ publicKey: cfg.publicKey }); } catch(e) { console.error('EmailJS init error:', e); }
+          }
+      }
+
+      async function sendReportByEmail() {
+          const cfg = getEmailConfig();
+          if (!cfg.serviceId || !cfg.templateId || !cfg.publicKey) {
+              return alert('Primero configura EmailJS en Configuración.');
+          }
+          if (salesHistory.length === 0) {
+              return alert('No hay ventas para enviar.');
+          }
+          const reportText = buildReportText();
+          const dest = cfg.destEmail || 'admin@kevnay.com';
+          const params = {
+              to_email: dest,
+              subject: `Reporte de Ventas KEV NAY - ${new Date().toLocaleDateString()}`,
+              message: reportText,
+              total_ventas: reportText.match(/Total Facturado: \$[\d,.]+/)?.[0] || '',
+              fecha: new Date().toLocaleString()
+          };
+          try {
+              await emailjs.send(cfg.serviceId, cfg.templateId, params);
+              alert(`Reporte enviado correctamente a ${dest}.`);
+          } catch (err) {
+              console.error('Error enviando correo:', err);
+              alert('Error al enviar el correo. Verifica tus credenciales de EmailJS.');
+          }
+      }
+
+      async function testEmailConfig() {
+          const cfg = getEmailConfig();
+          if (!cfg.serviceId || !cfg.templateId || !cfg.publicKey) {
+              return alert('Primero guarda las credenciales de EmailJS.');
+          }
+          const dest = cfg.destEmail || 'test@kevnay.com';
+          const params = {
+              to_email: dest,
+              subject: 'Prueba de configuración - KEV NAY POS',
+              message: 'Esta es una prueba de configuración de correo desde KEV NAY POS. Si recibes este mensaje, la configuración de EmailJS funciona correctamente.',
+              total_ventas: 'Prueba',
+              fecha: new Date().toLocaleString()
+          };
+          try {
+              await emailjs.send(cfg.serviceId, cfg.templateId, params);
+              alert(`Correo de prueba enviado a ${dest}. Revisa tu bandeja de entrada.`);
+          } catch (err) {
+              console.error('Error enviando prueba:', err);
+              alert('Error al enviar correo de prueba. Revisa la consola para detalles.');
+          }
+      }
+
+      function buildReportText() {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash')?.value) || 0;
+          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const paypalSales = salesHistory.filter(s => s.payment_method === 'paypal').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const totalSales = cashSales + cardSales + paypalSales;
+          let totalCost = 0;
+          salesHistory.forEach(s => {
+              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+                  s.items_snapshot.forEach(item => {
+                      totalCost += ((item.cost_price || 0) * (item.qty || 1));
+                  });
+              }
+          });
+          const grossProfit = totalSales - totalCost;
+
+          let text = `═══════════════════════════════════════\n`;
+          text += `  REPORTE DE VENTAS - KEV NAY POS\n`;
+          text += `  Fecha: ${new Date().toLocaleString()}\n`;
+          text += `═══════════════════════════════════════\n\n`;
+          text += `RESUMEN FINANCIERO:\n`;
+          text += `  Ventas en Efectivo: $${cashSales.toLocaleString()}\n`;
+          text += `  Ventas con Tarjeta: $${cardSales.toLocaleString()}\n`;
+          text += `  Ventas PayPal: $${paypalSales.toLocaleString()}\n`;
+          text += `  Movimientos de Caja: $${cashMovements.toLocaleString()}\n`;
+          text += `  Efectivo Inicial: $${initialCash.toLocaleString()}\n\n`;
+          text += `  Costo Total de Ventas: $${totalCost.toLocaleString()}\n`;
+          text += `  Utilidad Bruta: $${grossProfit.toLocaleString()}\n`;
+          text += `  Total Facturado: $${totalSales.toLocaleString()}\n\n`;
+          text += `═══════════════════════════════════════\n`;
+          text += `DETALLE DE VENTAS (${salesHistory.length}):\n`;
+          text += `═══════════════════════════════════════\n`;
+          salesHistory.forEach((s, i) => {
+              const method = s.payment_method === 'cash' ? 'Efectivo' : s.payment_method === 'card' ? 'Tarjeta' : 'PayPal';
+              text += `  ${i+1}. #${String(s.id).slice(-6)} | ${new Date(s.date).toLocaleString()} | ${method} | $${parseFloat(s.total).toLocaleString()}\n`;
+          });
+          text += `\n═══════════════════════════════════════\n`;
+          text += `Generado por: ${currentRole === 'admin' ? 'Administrador' : 'Cajero'}\n`;
+          return text;
+      }
+
+      // ===================== CONFIGURACIÓN PAYPAL =====================
+
+      function getPayPalConfig() {
+          return {
+              clientId: localStorage.getItem('kev_nay_paypal_client_id') || '',
+              mode: localStorage.getItem('kev_nay_paypal_mode') || 'sandbox'
+          };
+      }
+
+      function savePayPalConfig() {
+          const clientId = document.getElementById('config-paypal-client-id').value.trim();
+          const mode = document.getElementById('config-paypal-mode').value;
+          if (!clientId) {
+              return alert('Ingresa tu PayPal Client ID.');
+          }
+          localStorage.setItem('kev_nay_paypal_client_id', clientId);
+          localStorage.setItem('kev_nay_paypal_mode', mode);
+          paypalSdkLoaded = false; // forzar recarga
+          alert('Configuración de PayPal guardada correctamente.');
+          updateConfigStatus();
+      }
+
+      function loadPayPalSDK() {
+          return new Promise((resolve, reject) => {
+              const cfg = getPayPalConfig();
+              if (!cfg.clientId) {
+                  reject('PayPal no configurado');
+                  return;
+              }
+              if (paypalSdkLoaded && typeof paypal !== 'undefined') {
+                  resolve();
+                  return;
+              }
+              // Remover script anterior si existe
+              const old = document.getElementById('paypal-sdk-script');
+              if (old) old.remove();
+              const modeParam = cfg.mode === 'live' ? '' : '&buyer-country=US';
+              const script = document.createElement('script');
+              script.id = 'paypal-sdk-script';
+              script.src = `https://www.paypal.com/sdk/js?client-id=${cfg.clientId}&currency=USD${modeParam}`;
+              script.onload = () => { paypalSdkLoaded = true; resolve(); };
+              script.onerror = () => reject('Error cargando PayPal SDK');
+              document.head.appendChild(script);
+          });
+      }
+
+      function openPayPalModal() {
+          if (cart.length === 0) return alert('El carrito está vacío.');
+          const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const total = subtotalAfterDiscount + (subtotalAfterDiscount * (vatRate / 100));
+
+          document.getElementById('paypal-total-amount').innerText = `$${total.toLocaleString()}`;
+          document.getElementById('paypal-modal').classList.remove('hidden');
+          document.getElementById('paypal-error').classList.add('hidden');
+          document.getElementById('paypal-success').classList.add('hidden');
+          document.getElementById('paypal-button-container').innerHTML = '';
+
+          const cfg = getPayPalConfig();
+          if (!cfg.clientId) {
+              document.getElementById('paypal-error').textContent = 'PayPal no configurado. Ve a Configuración e ingresa tu Client ID.';
+              document.getElementById('paypal-error').classList.remove('hidden');
+              return;
+          }
+
+          loadPayPalSDK().then(() => {
+              renderPayPalButtons(total);
+          }).catch(err => {
+              document.getElementById('paypal-error').textContent = typeof err === 'string' ? err : 'Error cargando PayPal.';
+              document.getElementById('paypal-error').classList.remove('hidden');
+          });
+      }
+
+      function closePayPalModal() {
+          document.getElementById('paypal-modal').classList.add('hidden');
+      }
+
+      function renderPayPalButtons(amount) {
+          if (typeof paypal === 'undefined') return;
+          paypal.Buttons({
+              style: { layout: 'vertical', color: 'gold', shape: 'rect', label: 'pay' },
+              createOrder: (data, actions) => {
+                  return actions.order.create({
+                      purchase_units: [{
+                          amount: { value: amount.toFixed(2), currency_code: 'USD' },
+                          description: 'Venta KEV NAY POS'
+                      }]
+                  });
+              },
+              onApprove: (data, actions) => {
+                  return actions.order.capture().then(details => {
+                      document.getElementById('paypal-success').classList.remove('hidden');
+                      document.getElementById('paypal-button-container').innerHTML = '';
+                      setTimeout(() => {
+                          closePayPalModal();
+                          processSale('paypal', details);
+                      }, 1500);
+                  });
+              },
+              onError: (err) => {
+                  console.error('PayPal error:', err);
+                  document.getElementById('paypal-error').textContent = 'Error en el pago de PayPal. Intente de nuevo.';
+                  document.getElementById('paypal-error').classList.remove('hidden');
+              }
+          }).render('#paypal-button-container');
+      }
+
+      // ===================== GUARDAR CONTRASEÑAS =====================
+
+      function saveAdminPassword() {
+          const newPass = document.getElementById('config-admin-pass').value.trim();
+          if (!newPass) return alert('Ingresa una nueva contraseña.');
+          localStorage.setItem('kev_nay_admin_pass', newPass);
+          document.getElementById('config-admin-pass').value = '';
+          alert('Contraseña de Administrador actualizada.');
+      }
+
+      function saveCashierPassword() {
+          const newPass = document.getElementById('config-cashier-pass').value.trim();
+          if (!newPass) return alert('Ingresa una nueva contraseña.');
+          localStorage.setItem('kev_nay_cashier_pass', newPass);
+          document.getElementById('config-cashier-pass').value = '';
+          alert('Contraseña de Cajero actualizada.');
+      }
+
+      function updateConfigStatus() {
+          const cfg = getEmailConfig();
+          const pp = getPayPalConfig();
+          const emailOk = cfg.serviceId && cfg.templateId && cfg.publicKey;
+          const ppOk = pp.clientId;
+          const statusEl = document.getElementById('config-status');
+          if (statusEl) {
+              statusEl.innerHTML = `Correo: ${emailOk ? '<span class="text-green-">✅ Configurado</span>' : '<span class="text-yellow-400">⚠️ Pendiente</span>'} | PayPal: ${ppOk ? '<span class="text-green-400">✅ Configurado</span>' : '<span class="text-yellow-400">⚠️ Pendiente</span>'}`;
+          }
+      }
+
+      // ===================== NAVEGACIÓN =====================
 
       function switchTab(tab) {
-          ['pos', 'inventory', 'generator', 'customers', 'closing', 'users'].forEach(t => {
+          // Cajero no puede acceder a inventario ni configuración
+          if (currentRole === 'cajero' && (tab === 'inventory' || tab === 'config')) {
+              alert('No tienes permiso para acceder a este módulo.');
+              return;
+          }
+          ['pos', 'inventory', 'generator', 'customers', 'closing', 'config'].forEach(t => {
               const view = document.getElementById(`view-${t}`);
-              const btn = document.getElementById(`btn-${t}`);
               if (view) view.classList.add('hidden');
-              if (btn) btn.className = btn.className.replace('bg-red-600 text-white', 'bg-gray-700 text-gray-300');
+              const btn = document.getElementById(`btn-${t}`);
+              if (btn) {
+                  btn.classList.remove('bg-red-600', 'text-white');
+                  btn.classList.add('bg-gray-700', 'text-gray-300');
+              }
           });
           const targetView = document.getElementById(`view-${tab}`);
+          if (targetView) targetView.classList.remove('hidden');
+          
           const activeBtn = document.getElementById(`btn-${tab}`);
-          if(targetView) targetView.classList.remove('hidden');
-          if(activeBtn) activeBtn.className = activeBtn.className.replace('bg-gray-700 text-gray-300', 'bg-red-600 text-white');
+          if (activeBtn) {
+              activeBtn.classList.remove('bg-gray-700', 'text-gray-300');
+              activeBtn.classList.add('bg-red-600', 'text-white');
+          }
 
-          if (tab === 'closing') fetchClosingData();
+          if(tab === 'inventory' || tab === 'pos') fetchProducts();
+          if(tab === 'generator') generateLiveBarcode();
+          if(tab === 'customers' || tab === 'pos') {
+              fetchCustomers();
+              if(tab === 'customers') renderCustomerListForHistory();
+          }
+          if(tab === 'closing') {
+              fetchSalesHistory();
+          }
+          if(tab === 'config') {
+              loadConfigValues();
+              updateConfigStatus();
+          }
       }
 
-      async function fetchInitialData() {
-          await fetchProducts();
-          await fetchCustomers();
-          if (currentUserRole === 'admin') fetchUsers();
+      function loadConfigValues() {
+          const cfg = getEmailConfig();
+          const pp = getPayPalConfig();
+          document.getElementById('config-emailjs-service').value = cfg.serviceId;
+          document.getElementById('config-emailjs-template').value = cfg.templateId;
+          document.getElementById('config-emailjs-key').value = cfg.publicKey;
+          document.getElementById('config-email-dest').value = cfg.destEmail;
+          document.getElementById('config-paypal-client-id').value = pp.clientId;
+          document.getElementById('config-paypal-mode').value = pp.mode;
       }
+
+      // ===================== GENERADOR DE CÓDIGOS DE BARRAS =====================
+
+      function generateLiveBarcode() {
+          const textInput = document.getElementById('live-barcode-input');
+          const formatSelect = document.getElementById('live-barcode-format');
+          if (!textInput || !formatSelect) return;
+          
+          const val = textInput.value.trim() || 'KEVNAY-DEFAULT';
+          const format = formatSelect.value;
+          
+          try {
+              JsBarcode("#live-barcode-svg", val, {
+                  format: format,
+                  lineColor: "#000",
+                  width: 2,
+                  height: 90,
+                  displayValue: true,
+                  fontSize: 14
+              });
+          } catch(e) {
+              console.error("Error generando código de barras:", e);
+          }
+      }
+
+      function printLiveBarcode() {
+          const textInput = document.getElementById('live-barcode-input');
+          const val = textInput ? textInput.value.trim() : 'Código';
+          const ticketDiv = document.getElementById('printable-ticket');
+          
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; padding: 4mm; width: 50mm;">
+                  <h4 style="margin:0 0 3mm 0; font-size:12px;"><b>KEV NAY - ETIQUETA</b></h4>
+                  <svg id="print-live-single"></svg>
+                  <p style="margin:3mm 0 0 0; font-size:10px;">Ref: ${val}</p>
+              </div>
+          `;
+          try {
+              JsBarcode("#print-live-single", val, { format: "CODE128", width: 1.2, height: 40, displayValue: true, fontSize: 10 });
+          } catch(e) {}
+          window.print();
+      }
+
+      // ===================== SUPABASE: PRODUCTOS =====================
 
       async function fetchProducts() {
-          const { data } = await supabaseClient.from('products').select('*').order('name');
-          products = data || [];
-          renderProductGrid();
-          renderInventoryTable();
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('products').select('*').order('name', { ascending: true });
+              if (error) throw error;
+              products = data || [];
+              renderProductGrid();
+              if(!document.getElementById('view-inventory').classList.contains('hidden')) {
+                  renderInventoryTable();
+              }
+          } catch (err) {
+              console.error('Error al cargar productos:', err);
+          }
       }
+
+      // ===================== SUPABASE: CLIENTES =====================
+
+      async function fetchCustomers() {
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('customers').select('*').order('name', { ascending: true });
+              if (error) throw error;
+              customers = data || [];
+              renderCustomerSelect();
+              if(!document.getElementById('view-customers').classList.contains('hidden')) {
+                  renderCustomerListForHistory();
+              }
+          } catch (err) {
+              console.error('Error al cargar clientes:', err);
+          }
+      }
+
+      // ===================== SUPABASE: VENTAS =====================
+
+      async function fetchSalesHistory() {
+          if (!supabaseClient) return;
+          try {
+              const { data, error } = await supabaseClient.from('sales').select('*').order('date', { ascending: false });
+              if (error) throw error;
+              salesHistory = data || [];
+              calculateClosingPreview();
+              renderClosingSalesTable();
+          } catch(e) { console.error(e); }
+      }
+
+      // ===================== GRID DE PRODUCTOS =====================
 
       function filterProducts(query) {
           const grid = document.getElementById('product-grid');
+          if(!grid) return;
           grid.innerHTML = '';
           const filtered = products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()) || (p.code && p.code.includes(query)));
+
+          if (filtered.length === 0) {
+              grid.innerHTML = '<p class="text-gray-500 col-span-full text-center py-4">No se encontraron productos.</p>';
+              return;
+          }
+
+          const fragment = document.createDocumentFragment();
           filtered.forEach(p => {
               const card = document.createElement('div');
-              card.className = `bg-gray-900 border border-gray-700 rounded-lg p-3 cursor-pointer hover:border-red-500 transition ${p.stock <= 0 ? 'opacity-50' : ''}`;
-              card.onclick = () => p.stock > 0 && addToCart(p.id);
-              card.innerHTML = `<h3 class="font-bold text-sm text-white line-clamp-1 mb-2">${p.name}</h3>
-                  <div class="flex justify-between items-center"><span class="text-red-400 font-bold">$${parseFloat(p.price).toLocaleString()}</span><span class="text-xs text-gray-300">St: ${p.stock}</span></div>`;
-              grid.appendChild(card);
-          });
-      }
-      function renderProductGrid() { filterProducts(''); }
+              card.className = `bg-gray-900 border border-gray-700 rounded-lg p-3 flex flex-col justify-between cursor-pointer hover:border-red-500 transition ${p.stock <= 0 ? 'opacity-50 pointer-events-none' : ''}`;
+              card.onclick = () => addToCart(p.id);
 
-      async function fetchCustomers() {
-          const { data } = await supabaseClient.from('customers').select('*').order('name');
-          customers = data || [];
+              const imgSrc = p.image_url && p.image_url.trim() !== '' ? p.image_url : 'https://placehold.co/150x150/1f2937/9ca3af?text=Sin+Foto';
+
+              card.innerHTML = `
+                  <div class="flex flex-col items-center text-center mb-2">
+                      <img src="${imgSrc}" alt="${p.name}" class="w-16 h-16 object-cover rounded-lg border border-gray-700 bg-gray-800 mb-2 shadow" onerror="this.src='https://placehold.co/150x150/1f2937/9ca3af?text=Error'">
+                      <h3 class="font-bold text-sm text-white line-clamp-1 w-full">${p.name}</h3>
+                      <p class="text-xs text-gray-400">Cod: ${p.code || 'N/A'}</p>
+                  </div>
+                  <div class="flex justify-between items-center mt-1 border-t border-gray-800 pt-2">
+                      <span class="text-red-400 font-bold">$${parseFloat(p.price).toLocaleString()}</span>
+                      <span class="text-xs bg-gray-800 px-2 py-0.5 rounded text-gray-300">Stock: ${p.stock}</span>
+                  </div>
+              `;
+              fragment.appendChild(card);
+          });
+          grid.appendChild(fragment);
+      }
+
+      function renderProductGrid() {
+          filterProducts('');
+      }
+
+      function renderCustomerSelect() {
           const select = document.getElementById('sale-customer');
+          if(!select) return;
+          const currentSelected = select.value;
           select.innerHTML = '<option value="">Cliente General / Mostrador</option>';
-          const tbody = document.getElementById('customers-table-body');
-          tbody.innerHTML = '';
-
           customers.forEach(c => {
-              select.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-              tbody.innerHTML += `<tr><td class="py-2">${c.name}</td><td>${c.phone || '-'}</td><td>${c.cedula || c.nit || '-'}</td></tr>`;
+              const opt = document.createElement('option');
+              opt.value = c.id;
+              opt.textContent = `${c.name} (NIT: ${c.nit || 'N/A'} / Cédula: ${c.cedula || 'N/A'})`;
+              select.appendChild(opt);
           });
+          if(currentSelected) select.value = currentSelected;
       }
+
+      // ===================== CARRITO =====================
 
       function addToCart(productId) {
           const product = products.find(p => p.id === productId);
-          const existing = cart.find(i => i.id === productId);
+          if (!product || product.stock <= 0) return;
+          const existing = cart.find(item => item.id === productId);
           if (existing) {
               if (existing.qty < product.stock) existing.qty++;
-              else alert('No hay suficiente stock.');
+              else alert('Stock máximo alcanzado.');
           } else {
               cart.push({ ...product, qty: 1 });
           }
@@ -348,317 +961,599 @@
 
       function renderCart() {
           const container = document.getElementById('cart-items');
+          if(!container) return;
+          if (cart.length === 0) {
+              container.innerHTML = '<p class="text-gray-500 text-center py-4">El carrito está vacío</p>';
+              document.getElementById('cart-subtotal').innerText = '$0.00';
+              document.getElementById('cart-total').innerText = '$0.00';
+              calculateChange();
+              return;
+          }
           container.innerHTML = '';
           let subtotal = 0;
+          const fragment = document.createDocumentFragment();
           cart.forEach(item => {
               subtotal += item.price * item.qty;
-              container.innerHTML += `<div class="flex justify-between items-center bg-gray-900 p-2 rounded border border-gray-700 text-sm">
-                  <div><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-400">$${item.price} x ${item.qty}</p></div>
-                  <button onclick="removeFromCart(${item.id})" class="text-red-400 hover:text-red-300 px-2"><i class="fa-solid fa-trash"></i></button>
-              </div>`;
+              const div = document.createElement('div');
+              div.className = 'flex justify-between items-center bg-gray-900 p-2 rounded border border-gray-700 text-sm';
+              div.innerHTML = `
+                  <div>
+                      <p class="font-semibold">${item.name}</p>
+                      <p class="text-xs text-gray-400">$${parseFloat(item.price).toLocaleString()} x ${item.qty}</p>
+                  </div>
+                  <div class="flex items-center space-x-2">
+                      <button onclick="changeQty(${item.id}, 1)" class="bg-gray-700 px-2 rounded text-white">+</button>
+                      <button onclick="changeQty(${item.id}, -1)" class="bg-gray-700 px-2 rounded text-white">-</button>
+                  </div>
+              `;
+              fragment.appendChild(div);
           });
-          
-          const discountPct = parseFloat(document.getElementById('cart-discount').value) || 0;
-          const discountAmount = subtotal * (discountPct / 100);
-          const total = Math.max(0, subtotal - discountAmount);
+          container.appendChild(fragment);
+
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const vatAmount = subtotalAfterDiscount * (vatRate / 100);
+          const total = subtotalAfterDiscount + vatAmount;
 
           document.getElementById('cart-subtotal').innerText = `$${subtotal.toLocaleString()}`;
           document.getElementById('cart-total').innerText = `$${total.toLocaleString()}`;
+          calculateChange();
       }
 
-      function removeFromCart(id) {
-          cart = cart.filter(i => i.id !== id);
+      function calculateChange() {
+          const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const total = subtotalAfterDiscount + (subtotalAfterDiscount * (vatRate / 100));
+
+          const received = parseFloat(document.getElementById('cash-received').value) || 0;
+          const change = received - total;
+          const changeEl = document.getElementById('cash-change');
+          if(changeEl) changeEl.innerText = change >= 0 ? `$${change.toLocaleString()}` : '$0.00';
+      }
+
+      function changeQty(productId, delta) {
+          const item = cart.find(i => i.id === productId);
+          if (!item) return;
+          const product = products.find(p => p.id === productId);
+          item.qty += delta;
+          if (item.qty <= 0) cart = cart.filter(i => i.id !== productId);
+          else if (item.qty > product.stock) {
+              item.qty = product.stock;
+              alert('Stock insuficiente.');
+          }
           renderCart();
       }
 
-      // REGISTRO DE VENTA REAL E IMPRESIÓN DIRECTA
-      async function processSale(method) {
+      // ===================== PROCESAR VENTA =====================
+
+      async function processSale(method, paypalDetails) {
           if (cart.length === 0) return alert('El carrito está vacío.');
+          const subtotal = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+          const discount = parseFloat(document.getElementById('cart-discount').value) || 0;
+          const vatRate = parseFloat(document.getElementById('cart-vat-rate').value) || 0;
+          const subtotalAfterDiscount = Math.max(0, subtotal - discount);
+          const vatAmount = subtotalAfterDiscount * (vatRate / 100);
+          const total = subtotalAfterDiscount + vatAmount;
 
-          const discountPct = parseFloat(document.getElementById('cart-discount').value) || 0;
-          let subtotal = 0;
-          cart.forEach(item => subtotal += item.price * item.qty);
-          const discountAmount = subtotal * (discountPct / 100);
-          const total = Math.max(0, subtotal - discountAmount);
           const customerId = document.getElementById('sale-customer').value || null;
+          const selectedCustomerObj = customers.find(c => c.id == customerId);
 
-          // 1. Guardar en Supabase
-          const { data: saleData, error: saleError } = await supabaseClient
-              .from('sales')
-              .insert([{
-                  cashier: currentUsername,
-                  customer_id: customerId,
-                  subtotal: subtotal,
-                  discount: discountPct,
-                  total: total,
-                  payment_method: method,
-                  items: cart
-              }])
-              .select()
-              .single();
-
-          if (saleError) return alert('Error al guardar la venta: ' + saleError.message);
-
-          // 2. Descontar Stock de Productos
-          for (const item of cart) {
-              const newStock = Math.max(0, item.stock - item.qty);
-              await supabaseClient.from('products').update({ stock: newStock }).eq('id', item.id);
-          }
-
-          // 3. Imprimir Recibo
-          printReceiptTicket(saleData, cart, subtotal, discountPct, total, method);
-
-          // 4. Limpiar datos localmente
-          cart = [];
-          document.getElementById('cart-discount').value = '0';
-          await fetchProducts();
-          renderCart();
-      }
-
-      // IMPRIMIR RECIBO FISICO EN POS
-      function printReceiptTicket(sale, items, subtotal, discount, total, method) {
-          const ticketDiv = document.getElementById('printable-ticket');
-          const dateStr = new Date(sale.created_at || Date.now()).toLocaleString();
-
-          let itemsHtml = '';
-          items.forEach(i => {
-              itemsHtml += `
-              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-                  <span>${i.qty}x ${i.name.substring(0, 16)}</span>
-                  <span>$${(i.price * i.qty).toLocaleString()}</span>
-              </div>`;
-          });
-
-          ticketDiv.innerHTML = `
-              <div style="text-align:center; font-weight:bold; margin-bottom:4px;">
-                  <h2 style="font-size:14px; margin:0;">KEV NAY POS</h2>
-                  <p style="font-size:10px; margin:2px 0;">Recibo de Venta #${sale.id}</p>
-              </div>
-              <p style="font-size:10px; margin:2px 0;"><b>Fecha:</b> ${dateStr}</p>
-              <p style="font-size:10px; margin:2px 0;"><b>Cajero:</b> ${sale.cashier}</p>
-              <p style="font-size:10px; margin:2px 0;"><b>Pago:</b> ${method === 'cash' ? 'Efectivo' : 'Tarjeta'}</p>
-              <hr style="border-top:1px dashed #000; margin:4px 0;">
-              ${itemsHtml}
-              <hr style="border-top:1px dashed #000; margin:4px 0;">
-              <div style="display:flex; justify-content:space-between; font-size:10px;">
-                  <span>Subtotal:</span><span>$${subtotal.toLocaleString()}</span>
-              </div>
-              ${discount > 0 ? `<div style="display:flex; justify-content:space-between; font-size:10px;"><span>Desc (${discount}%):</span><span>-$${(subtotal * discount / 100).toLocaleString()}</span></div>` : ''}
-              <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:12px; margin-top:3px;">
-                  <span>TOTAL:</span><span>$${total.toLocaleString()}</span>
-              </div>
-              <div style="text-align:center; margin-top:8px; font-size:9px;">¡Gracias por su compra!</div>
-          `;
-
-          document.body.classList.add('print-ticket');
-          setTimeout(() => {
-              window.print();
-              document.body.classList.remove('print-ticket');
-          }, 300);
-      }
-
-      // CONSULTA DE CIERRE DE CAJA
-      async function fetchClosingData() {
-          let query = supabaseClient.from('sales').select('*').order('created_at', { ascending: false });
-
-          // Si es cajero, filtra ÚNICAMENTE por sus ventas
-          if (currentUserRole !== 'admin') {
-              query = query.eq('cashier', currentUsername);
-              document.getElementById('closing-subtitle').innerText = `Ventas realizadas por el cajero: ${currentUsername}`;
-          } else {
-              document.getElementById('closing-subtitle').innerText = `Todas las ventas registradas en el sistema`;
-          }
-
-          const { data, error } = await query;
-          if (error) return console.error(error);
-
-          let cashTotal = 0, cardTotal = 0, grandTotal = 0;
-          const tbody = document.getElementById('closing-sales-table');
-          tbody.innerHTML = '';
-
-          (data || []).forEach(s => {
-              const amt = parseFloat(s.total) || 0;
-              grandTotal += amt;
-              if (s.payment_method === 'cash') cashTotal += amt;
-              else cardTotal += amt;
-
-              tbody.innerHTML += `
-                  <tr class="border-b border-gray-700">
-                      <td class="py-2">#${s.id}</td>
-                      <td class="py-2">${s.cashier}</td>
-                      <td class="py-2"><span class="px-2 py-0.5 rounded text-xs ${s.payment_method === 'cash' ? 'bg-green-900 text-green-300' : 'bg-blue-900 text-blue-300'}">${s.payment_method === 'cash' ? 'Efectivo' : 'Tarjeta'}</span></td>
-                      <td class="py-2 text-right font-bold">$${amt.toLocaleString()}</td>
-                      <td class="py-2 text-xs text-gray-400 text-right">${new Date(s.created_at).toLocaleTimeString()}</td>
-                  </tr>`;
-          });
-
-          document.getElementById('closing-cash').innerText = `$${cashTotal.toLocaleString()}`;
-          document.getElementById('closing-card').innerText = `$${cardTotal.toLocaleString()}`;
-          document.getElementById('closing-total').innerText = `$${grandTotal.toLocaleString()}`;
-
-          lastClosingData = {
-              cash: cashTotal,
-              card: cardTotal,
-              total: grandTotal,
-              count: (data || []).length,
-              cashier: currentUserRole === 'admin' ? 'TODOS (ADMIN)' : currentUsername
+          const saleRecord = {
+              id: Date.now(),
+              date: new Date().toISOString(),
+              payment_method: method,
+              customer_id: customerId ? parseInt(customerId) : null,
+              subtotal,
+              discount,
+              vat_amount: vatAmount,
+              total,
+              items_snapshot: [...cart],
+              paypal_order_id: paypalDetails ? (paypalDetails.id || paypalDetails.orderID || '') : null
           };
+
+          try {
+              const { error: saleError } = await supabaseClient.from('sales').insert([saleRecord]);
+              if (saleError) {
+                  const basicRecord = {
+                      id: saleRecord.id,
+                      date: saleRecord.date,
+                      payment_method: method,
+                      customer_id: customerId ? parseInt(customerId) : null,
+                      total
+                  };
+                  const { error: retryError } = await supabaseClient.from('sales').insert([basicRecord]);
+                  if (retryError) throw retryError;
+              }
+
+              for (const item of cart) {
+                  const prod = products.find(p => p.id === item.id);
+                  const newStock = prod.stock - item.qty;
+                  const { error: stockError } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', item.id);
+                  if (stockError) throw stockError;
+                  prod.stock = newStock;
+              }
+
+              salesHistory.unshift(saleRecord);
+              printSaleTicket(saleRecord, cart, selectedCustomerObj);
+
+              const methodLabel = method === 'cash' ? 'Efectivo' : method === 'card' ? 'Tarjeta' : 'PayPal';
+              alert(`¡Venta procesada con éxito! Total: $${total.toLocaleString()} (${methodLabel})`);
+              cart = [];
+              document.getElementById('cart-discount').value = 0;
+              document.getElementById('cash-received').value = '';
+              renderCart();
+              renderProductGrid();
+          } catch (err) {
+              console.error('Error al procesar la venta:', err);
+              alert('Error al registrar la venta en Supabase.');
+          }
       }
 
-      // IMPRIMIR CIERRE DE CAJA
-      function printClosingReport() {
-          if (lastClosingData.count === 0) return alert('No hay ventas registradas para este cierre.');
+      // ===================== TICKET DE IMPRESIÓN =====================
 
+      function printSaleTicket(sale, items, customer) {
           const ticketDiv = document.getElementById('printable-ticket');
-          const dateStr = new Date().toLocaleString();
+          let itemsHtml = items.map(i => `
+              <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span>${i.qty}x ${i.name || i.product_name || 'Prod'}</span>
+                  <span>$${((i.price || 0) * (i.qty || 1)).toLocaleString()}</span>
+              </div>
+          `).join('');
+
+          const customerName = customer ? customer.name : 'Cliente General';
+          const customerPhone = customer && customer.phone ? customer.phone : 'N/A';
+          const customerCedula = customer && customer.cedula ? customer.cedula : 'N/A';
+          const customerNit = customer && customer.nit ? customer.nit : 'N/A';
+          const customerAddress = customer && customer.address ? customer.address : 'Mostrador';
+          const payLabel = sale.payment_method === 'cash' ? 'Efectivo' : sale.payment_method === 'card' ? 'Tarjeta' : 'PayPal';
 
           ticketDiv.innerHTML = `
-              <div style="text-align:center; font-weight:bold; margin-bottom:5px;">
-                  <h2 style="font-size:14px; margin:0;">CIERRE DE CAJA</h2>
-                  <p style="font-size:10px; margin:2px 0;">KEV NAY POS</p>
+              <div style="text-align: center; margin-bottom: 6px;">
+                  <h3 style="margin:0; font-size:13px;"><b>KEV NAY POS</b></h3>
+                  <p style="margin:1px 0; font-size:9px;">Factura de Venta / Recibo</p>
+                  <p style="margin:1px 0; font-size:9px;">${new Date(sale.date).toLocaleString()}</p>
               </div>
-              <p style="font-size:10px; margin:2px 0;"><b>Fecha:</b> ${dateStr}</p>
-              <p style="font-size:10px; margin:2px 0;"><b>Cajero:</b> ${lastClosingData.cashier}</p>
-              <p style="font-size:10px; margin:2px 0;"><b>Ventas registradas:</b> ${lastClosingData.count}</p>
-              <hr style="border-top:1px dashed #000; margin:5px 0;">
-              <div style="display:flex; justify-content:space-between; font-size:10px;">
-                  <span>Total Efectivo:</span><span>$${lastClosingData.cash.toLocaleString()}</span>
-              </div>
-              <div style="display:flex; justify-content:space-between; font-size:10px;">
-                  <span>Total Tarjeta:</span><span>$${lastClosingData.card.toLocaleString()}</span>
-              </div>
-              <hr style="border-top:1px dashed #000; margin:5px 0;">
-              <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:12px;">
-                  <span>TOTAL RECAUDADO:</span><span>$${lastClosingData.total.toLocaleString()}</span>
-              </div>
-              <div style="text-align:center; margin-top:15px; font-size:9px;">Firma del Cajero: _________________</div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="margin:2px 0;"><b>Cliente:</b> ${customerName}</p>
+              <p style="margin:2px 0;"><b>Teléfono:</b> ${customerPhone}</p>
+              <p style="margin:2px 0;"><b>Cédula:</b> ${customerCedula}</p>
+              <p style="margin:2px 0;"><b>NIT:</b> ${customerNit}</p>
+              <p style="margin:2px 0;"><b>Dirección:</b> ${customerAddress}</p>
+              <p style="margin:2px 0;"><b>Pago:</b> ${payLabel}</p>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="margin-bottom: 4px;">${itemsHtml}</div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <div style="display:flex; justify-content:space-between;"><span>Subtotal:</span><span>$${parseFloat(sale.subtotal || sale.total || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>Descuento:</span><span>$${parseFloat(sale.discount || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span>IVA:</span><span>$${parseFloat(sale.vat_amount || 0).toLocaleString()}</span></div>
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:3px;"><span><b>TOTAL:</b></span><span><b>$${parseFloat(sale.total || 0).toLocaleString()}</b></span></div>
+              <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+              <p style="text-align: center; margin-top: 6px; font-size:9px;">¡Gracias por su compra!<br/>Kev Nay Business Hub</p>
           `;
+          window.print();
+      }
 
-          document.body.classList.add('print-ticket');
-          setTimeout(() => {
+      // ===================== INVENTARIO =====================
+
+      function renderInventoryTable() {
+          const tbody = document.getElementById('inventory-table-body');
+          if(!tbody) return;
+          tbody.innerHTML = '';
+          if (products.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-gray-500">No hay productos registrados.</td></tr>';
+              return;
+          }
+          const fragment = document.createDocumentFragment();
+          products.forEach((p, index) => {
+              const tr = document.createElement('tr');
+              tr.className = 'border-b border-gray-700';
+              const barcodeId = `barcode-${index}`;
+              const safeCode = p.code || ('770' + Math.floor(100000 + Math.random() * 900000));
+              const imgSrc = p.image_url && p.image_url.trim() !== '' ? p.image_url : 'https://placehold.co/100x100/1f2937/9ca3af?text=Sin+Foto';
+              const costPrice = p.cost_price || 0;
+
+              tr.innerHTML = `
+                  <td class="py-3 px-4"><img src="${imgSrc}" class="w-10 h-10 object-cover rounded bg-gray-900 border border-gray-700"></td>
+                  <td class="py-3 px-4 font-medium">${p.name}</td>
+                  <td class="py-3 px-4 text-gray-400">${safeCode}</td>
+                  <td class="py-3 px-4"><svg id="${barcodeId}"></svg></td>
+                  <td class="py-3 px-4 text-gray-300">$${parseFloat(costPrice).toLocaleString()}</td>
+                  <td class="py-3 px-4 text-red-400">$${parseFloat(p.price).toLocaleString()}</td>
+                  <td class="py-3 px-4 font-bold">${p.stock}</td>
+                  <td class="py-3 px-4 text-center space-x-1">
+                      <button onclick="promptEditProduct(${p.id})" class="bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded text-xs text-white" title="Editar Producto"><i class="fa-solid fa-pen"></i></button>
+                      <button onclick="promptAdjustment(${p.id})" class="bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded text-xs text-white font-medium">Stock</button>
+                      <button onclick="printSingleBarcode('${safeCode}', '${p.name.replace(/'/g, "\'")}', ${p.price})" class="bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded text-xs text-white"><i class="fa-solid fa-print"></i></button>
+                  </td>
+              `;
+              fragment.appendChild(tr);
+
+              setTimeout(() => {
+                  try {
+                      JsBarcode(`#${barcodeId}`, safeCode, { format: "CODE128", width: 1.1, height: 28, displayValue: true, fontSize: 9 });
+                  } catch(e) {}
+              }, 100);
+          });
+          tbody.appendChild(fragment);
+      }
+
+      async function promptEditProduct(productId) {
+          const product = products.find(p => p.id === productId);
+          if(!product) return;
+
+          const name = prompt('Nombre del producto:', product.name);
+          if (!name) return;
+          const code = prompt('Código de barras / SKU:', product.code || '') || '';
+          const cost_price = parseFloat(prompt('Costo de adquisición/compra ($):', product.cost_price || 0)) || 0;
+          const price = parseFloat(prompt('Precio de venta ($):', product.price));
+          const stock = parseInt(prompt('Stock actual:', product.stock));
+          const image_url = prompt('URL de la imagen del producto:', product.image_url || '') || '';
+
+          if (isNaN(price) || isNaN(stock)) return alert('Datos numéricos inválidos.');
+
+          try {
+              const { error } = await supabaseClient.from('products').update({ name, code: code.trim(), cost_price, price, stock, image_url: image_url.trim() }).eq('id', productId);
+              if (error) throw error;
+              alert('¡Producto actualizado con éxito!');
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al actualizar el producto en Supabase.');
+          }
+      }
+
+      function printSingleBarcode(code, name, price) {
+          const ticketDiv = document.getElementById('printable-ticket');
+          ticketDiv.innerHTML = `
+              <div style="text-align: center; padding: 2mm; width: 50mm;">
+                  <h4 style="margin:0 0 2mm 0; font-size:11px;"><b>${name}</b></h4>
+                  <p style="margin:0 0 3mm 0; font-size:10px;">Precio: $${parseFloat(price).toLocaleString()}</p>
+                  <svg id="print-barcode-single"></svg>
+              </div>
+          `;
+          try {
+              JsBarcode("#print-barcode-single", code, { format: "CODE128", width: 1.2, height: 35, displayValue: true, fontSize: 10 });
+          } catch(e) {}
+          window.print();
+      }
+
+      // ===================== CLIENTES =====================
+
+      function renderCustomerListForHistory() {
+          const container = document.getElementById('customer-list-buttons');
+          if(!container) return;
+          container.innerHTML = '';
+          if(customers.length === 0) {
+              container.innerHTML = '<p class="text-xs text-gray-500">No hay clientes.</p>';
+              return;
+          }
+          customers.forEach(c => {
+              const btn = document.createElement('button');
+              btn.className = 'w-full text-left bg-gray-800 hover:bg-gray-700 p-2.5 rounded text-sm font-medium transition border border-gray-700 flex justify-between items-center';
+              btn.innerHTML = `<span>${c.name}</span> <i class="fa-solid fa-chevron-right text-xs text-gray-500"></i>`;
+              btn.onclick = () => loadCustomerPurchases(c);
+              container.appendChild(btn);
+          });
+      }
+
+      async function loadCustomerPurchases(customer) {
+          currentSelectedCustomer = customer;
+          document.getElementById('selected-customer-title').innerText = `Historial: ${customer.name}`;
+          document.getElementById('btn-edit-selected-customer').classList.remove('hidden');
+
+          const tbody = document.getElementById('customer-purchases-body');
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-400">Cargando compras...</td></tr>';
+
+          try {
+              const { data, error } = await supabaseClient.from('sales').select('*').eq('customer_id', customer.id).order('date', { ascending: false });
+              if(error) throw error;
+
+              if(!data || data.length === 0) {
+                  tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">Este cliente no registra compras aún.</td></tr>';
+                  return;
+              }
+
+              tbody.innerHTML = '';
+              data.forEach(sale => {
+                  const tr = document.createElement('tr');
+                  tr.className = 'border-b border-gray-800';
+                  const fechaFormateada = new Date(sale.date).toLocaleString();
+                  const payLabel = sale.payment_method === 'cash' ? 'Efectivo' : sale.payment_method === 'card' ? 'Tarjeta' : 'PayPal';
+                  tr.innerHTML = `
+                      <td class="py-2 px-3 text-gray-300">${fechaFormateada}</td>
+                      <td class="py-2 px-3 text-gray-400">${payLabel}</td>
+                      <td class="py-2 px-3 font-bold text-red-400">$${parseFloat(sale.total).toLocaleString()}</td>
+                      <td class="py-2 px-3 text-center">
+                          <button onclick='reprintCustomerSale(${JSON.stringify(sale)}, ${JSON.stringify(customer)})' class="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs text-white"><i class="fa-solid fa-print"></i> Imprimir</button>
+                      </td>
+                  `;
+                  tbody.appendChild(tr);
+              });
+          } catch(e) {
+              console.error(e);
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-red-400">Error al cargar historial.</td></tr>';
+          }
+      }
+
+      async function editCurrentSelectedCustomer() {
+          if(!currentSelectedCustomer) return;
+          const name = prompt('Nombre o Razón Social:', currentSelectedCustomer.name);
+          if(!name) return;
+          const phone = prompt('Teléfono:', currentSelectedCustomer.phone || '');
+          const cedula = prompt('Cédula:', currentSelectedCustomer.cedula || '');
+          const nit = prompt('NIT:', currentSelectedCustomer.nit || '');
+          const address = prompt('Dirección fiscal/comercial:', currentSelectedCustomer.address || '');
+
+          try {
+              const { error } = await supabaseClient.from('customers').update({ name, phone, cedula, nit, address }).eq('id', currentSelectedCustomer.id);
+              if(error) throw error;
+              alert('¡Cliente actualizado con éxito!');
+              await fetchCustomers();
+              const updated = customers.find(c => c.id === currentSelectedCustomer.id);
+              if(updated) loadCustomerPurchases(updated);
+          } catch(e) {
+              console.error(e);
+              alert('Error al actualizar el cliente en Supabase.');
+          }
+      }
+
+      function reprintCustomerSale(sale, customer) {
+          const items = sale.items_snapshot || [{ name: 'Compra General POS', price: sale.total, qty: 1 }];
+          printSaleTicket(sale, items, customer);
+      }
+
+      // ===================== REPORTES Y CIERRE =====================
+
+      function registerCashMovement() {
+          const val = parseFloat(prompt('Ingrese monto del movimiento (positivo para ingreso extra, negativo para gasto/retiro de caja):'));
+          if(isNaN(val)) return;
+          cashMovements += val;
+          alert(`Movimiento registrado. Ajuste acumulado en caja: $${cashMovements.toLocaleString()}`);
+          calculateClosingPreview();
+      }
+
+      function exportSalesToCSV() {
+          if(salesHistory.length === 0) return alert('No hay ventas para exportar.');
+          let csv = 'ID Venta,Fecha,Metodo Pago,Subtotal,Descuento,IVA,Total\n';
+          salesHistory.forEach(s => {
+              csv += `"${s.id}","${s.date}","${s.payment_method}","${s.subtotal || 0}","${s.discount || 0}","${s.vat_amount || 0}","${s.total}"\n`;
+          });
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.setAttribute('href', url);
+          a.setAttribute('download', `ventas_kev_nay_${new Date().toISOString().slice(0,10)}.csv`);
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+      }
+
+      function calculateClosingPreview() {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash')?.value) || 0;
+          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const paypalSales = salesHistory.filter(s => s.payment_method === 'paypal').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const totalSales = cashSales + cardSales + paypalSales;
+          const expectedCash = initialCash + cashSales + cashMovements;
+
+          let totalCost = 0;
+          salesHistory.forEach(s => {
+              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+                  s.items_snapshot.forEach(item => {
+                      const itemCost = item.cost_price || 0;
+                      totalCost += (itemCost * (item.qty || 1));
+                  });
+              }
+          });
+          const grossProfit = totalSales - totalCost;
+          const profitMargin = totalSales > 0 ? ((grossProfit / totalSales) * 100).toFixed(1) : 0;
+
+          const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
+          setVal('prev-cash-val', `$${cashSales.toLocaleString()}`);
+          setVal('prev-card-val', `$${cardSales.toLocaleString()}`);
+          setVal('prev-paypal-val', `$${paypalSales.toLocaleString()}`);
+          setVal('prev-mov-val', `$${cashMovements.toLocaleString()}`);
+          setVal('prev-expected-val', `$${expectedCash.toLocaleString()}`);
+          setVal('prev-cost-val', `$${totalCost.toLocaleString()}`);
+          setVal('prev-profit-val', `$${grossProfit.toLocaleString()} (${profitMargin}%)`);
+          setVal('prev-total-val', `$${totalSales.toLocaleString()}`);
+      }
+
+      function renderClosingSalesTable() {
+          const tbody = document.getElementById('closing-sales-list');
+          if(!tbody) return;
+          if(salesHistory.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-gray-500">No hay ventas registradas.</td></tr>';
+              return;
+          }
+          tbody.innerHTML = '';
+          salesHistory.forEach(s => {
+              const tr = document.createElement('tr');
+              const payLabel = s.payment_method === 'cash' ? 'Efectivo' : s.payment_method === 'card' ? 'Tarjeta' : 'PayPal';
+              tr.innerHTML = `
+                  <td class="py-2 px-2 text-gray-400">#${String(s.id).slice(-6)}</td>
+                  <td class="py-2 px-2 text-gray-300">${new Date(s.date).toLocaleTimeString()}</td>
+                  <td class="py-2 px-2 text-gray-300">${payLabel}</td>
+                  <td class="py-2 px-2 font-bold text-red-400">$${parseFloat(s.total).toLocaleString()}</td>
+              `;
+              tbody.appendChild(tr);
+          });
+      }
+
+      async function generateCashClosingReport(sendEmail) {
+          const initialCash = parseFloat(document.getElementById('closing-initial-cash').value) || 0;
+          const actualCash = parseFloat(document.getElementById('closing-actual-cash').value) || 0;
+          const cashSales = salesHistory.filter(s => s.payment_method === 'cash').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const cardSales = salesHistory.filter(s => s.payment_method === 'card').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const paypalSales = salesHistory.filter(s => s.payment_method === 'paypal').reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
+          const totalSales = cashSales + cardSales + paypalSales;
+          const expectedCash = initialCash + cashSales + cashMovements;
+          const difference = actualCash - expectedCash;
+
+          let totalCost = 0;
+          salesHistory.forEach(s => {
+              if(s.items_snapshot && Array.isArray(s.items_snapshot)) {
+                  s.items_snapshot.forEach(item => {
+                      totalCost += ((item.cost_price || 0) * (item.qty || 1));
+                  });
+              }
+          });
+          const grossProfit = totalSales - totalCost;
+
+          const closingData = { initial_cash: initialCash, total_sales: totalSales, cash_sales: cashSales, card_sales: cardSales, paypal_sales: paypalSales, expected_cash: expectedCash, actual_cash: actualCash, difference };
+
+          try {
+              if(supabaseClient) {
+                  await supabaseClient.from('cash_closings').insert([closingData]);
+              }
+
+              const ticketDiv = document.getElementById('printable-ticket');
+              ticketDiv.innerHTML = `
+                  <div style="text-align: center; margin-bottom: 6px;">
+                      <h3 style="margin:0; font-size:13px;"><b>KEV NAY - CIERRE CAJA</b></h3>
+                      <p style="margin:1px 0; font-size:9px;">${new Date().toLocaleString()}</p>
+                  </div>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Efectivo Inicial: $${initialCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Ventas Efectivo: $${cashSales.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Movimientos Caja: $${cashMovements.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Ventas Tarjeta: $${cardSales.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Ventas PayPal: $${paypalSales.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Ventas Totales: $${totalSales.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Costo Ventas: $${totalCost.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Utilidad Bruta: $${grossProfit.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="margin:2px 0;">Efectivo Esperado: $${expectedCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;">Efectivo Real: $${actualCash.toLocaleString()}</p>
+                  <p style="margin:2px 0;"><b>Diferencia: $${difference.toLocaleString()}</b></p>
+                  <div style="border-bottom: 1px dashed black; margin: 4px 0;"></div>
+                  <p style="text-align: center; margin-top: 6px; font-size:9px;">¡Cierre financiero registrado!</p>
+              `;
               window.print();
-              document.body.classList.remove('print-ticket');
-          }, 300);
+
+              if (sendEmail) {
+                  const cfg = getEmailConfig();
+                  if (!cfg.serviceId || !cfg.templateId || !cfg.publicKey) {
+                      alert('Cierre generado, pero el correo no está configurado. Ve a Configuración.');
+                  } else {
+                      const reportText = buildReportText();
+                      const dest = cfg.destEmail || 'admin@kevnay.com';
+                      const params = {
+                          to_email: dest,
+                          subject: `Cierre de Caja KEV NAY - ${new Date().toLocaleDateString()}`,
+                          message: reportText,
+                          total_ventas: `$${totalSales.toLocaleString()}`,
+                          fecha: new Date().toLocaleString()
+                      };
+                      try {
+                          await emailjs.send(cfg.serviceId, cfg.templateId, params);
+                          alert(`Cierre generado y reporte enviado a ${dest}.`);
+                      } catch (emailErr) {
+                          console.error('Error enviando correo del cierre:', emailErr);
+                          alert('Cierre generado, pero hubo un error enviando el correo. Revisa la configuración de EmailJS.');
+                      }
+                  }
+              }
+          } catch (err) {
+              console.error(err);
+              alert('Error al registrar el cierre de caja.');
+          }
+      }
+
+      async function promptAdjustment(productId) {
+          const product = products.find(p => p.id === productId);
+          const newStockStr = prompt(`Nuevo stock físico para "${product.name}":`, product.stock);
+          if (newStockStr === null) return;
+          const newStock = parseInt(newStockStr);
+          if (isNaN(newStock) || newStock < 0) return alert('Valor inválido.');
+
+          try {
+              const { error } = await supabaseClient.from('products').update({ stock: newStock }).eq('id', productId);
+              if (error) throw error;
+              product.stock = newStock;
+              renderInventoryTable();
+              renderProductGrid();
+              alert('Stock actualizado correctamente.');
+          } catch (err) {
+              console.error(err);
+              alert('No se pudo actualizar el stock en Supabase.');
+          }
       }
 
       async function openNewProductModal() {
           const name = prompt('Nombre del producto:');
           if (!name) return;
-          let code = prompt('Código de barras / SKU (Déjalo vacío para autogenerar):');
-          if (!code) code = '770' + Math.floor(100000 + Math.random() * 900000);
-          const cost_price = parseFloat(prompt('Costo de compra ($):') || 0);
+          let code = prompt('Código de barras / SKU (Déjalo vacío para generarlo automáticamente):');
+          if(!code || code.trim() === '') {
+              code = '770' + Math.floor(100000 + Math.random() * 900000);
+          }
+          const cost_price = parseFloat(prompt('Costo de adquisición / compra ($):') || 0);
           const price = parseFloat(prompt('Precio de venta ($):'));
-          const stock = parseInt(prompt('Stock inicial:') || 0);
+          const stock = parseInt(prompt('Stock inicial:'));
+          const image_url = prompt('URL de la imagen del producto (Opcional):') || '';
 
-          if (isNaN(price)) return alert('El precio de venta es obligatorio.');
+          if (!name || isNaN(price) || isNaN(stock)) return alert('Datos incompletos.');
 
-          const { error } = await supabaseClient.from('products').insert([{ name, code, cost_price, price, stock }]);
-          if (error) alert('Error: ' + error.message);
-          else { alert('Producto guardado.'); fetchProducts(); }
+          try {
+              const { error } = await supabaseClient.from('products').insert([{ name, code: code.trim(), cost_price, price, stock, image_url: image_url.trim() }]);
+              if (error) throw error;
+              alert('¡Producto creado con éxito!');
+              fetchProducts();
+          } catch (err) {
+              console.error(err);
+              alert('Error al guardar el producto en Supabase.');
+          }
       }
 
       async function openNewCustomerModal() {
-          const name = prompt('Nombre completo del cliente:');
+          const name = prompt('Nombre completo o Razón Social del cliente:');
           if (!name) return;
-          const phone = prompt('Teléfono (opcional):');
-          const cedula = prompt('Cédula o NIT (opcional):');
+          const phone = prompt('Número de Teléfono:');
+          const cedula = prompt('Número de Cédula:');
+          const nit = prompt('Número de NIT:');
+          const address = prompt('Dirección fiscal/comercial:');
 
-          const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula }]);
-          if (error) alert('Error: ' + error.message);
-          else { alert('Cliente registrado.'); fetchCustomers(); }
+          try {
+              const { error } = await supabaseClient.from('customers').insert([{ name, phone, cedula, nit, address }]);
+              if (error) throw error;
+              alert('Cliente registrado con éxito.');
+              await fetchCustomers();
+          } catch (err) {
+              console.error(err);
+              alert('Error al guardar el cliente en Supabase.');
+          }
       }
 
-      async function fetchUsers() {
-          const { data } = await supabaseClient.from('app_users').select('*').order('created_at', { ascending: false });
-          const tbody = document.getElementById('users-table-body');
-          tbody.innerHTML = '';
-          (data || []).forEach(u => {
-              tbody.innerHTML += `<tr><td class="py-3">${u.username}</td><td><span class="bg-gray-700 px-2 rounded text-xs">${u.role}</span></td><td class="text-gray-400 text-xs">${new Date(u.created_at).toLocaleDateString()}</td></tr>`;
-          });
+      // ===================== INICIALIZACIÓN =====================
+
+      function initApp() {
+          fetchProducts();
+          fetchCustomers();
+          fetchSalesHistory();
+          initEmailJS();
       }
 
-      async function openNewUserModal() {
-          const username = prompt('Nombre del usuario (ej: cajero1):');
-          if(!username) return;
-          const pass = prompt('Contraseña:');
-          if(!pass) return;
-          const role = prompt('Rol ("admin" o "cajero"):').toLowerCase();
-          if(role !== 'admin' && role !== 'cajero') return alert('Rol inválido.');
-
-          const password_hash = await hashSHA256(pass);
-          const { error } = await supabaseClient.from('app_users').insert([{ username: username.toLowerCase().trim(), password_hash, role }]);
-          if(error) alert('Error: ' + error.message);
-          else { alert('Usuario creado.'); fetchUsers(); }
-      }
-
-      function toggleAllInv() {
-          const check = document.getElementById('selectAllInv').checked;
-          document.querySelectorAll('.inv-chk').forEach(cb => cb.checked = check);
-      }
-
-      function renderInventoryTable() {
-          const tbody = document.getElementById('inventory-table-body');
-          tbody.innerHTML = '';
-          products.forEach((p, idx) => {
-              const safeCode = p.code || 'N/A';
-              tbody.innerHTML += `
-                  <tr class="border-b border-gray-700">
-                      <td class="py-3 px-2 text-center"><input type="checkbox" class="inv-chk" value="${safeCode}"></td>
-                      <td class="py-3 px-4 font-medium">${p.name}</td>
-                      <td class="py-3 px-4 text-gray-400">${safeCode}</td>
-                      <td class="py-3 px-4"><svg id="inv-bc-${idx}"></svg></td>
-                      <td class="py-3 px-4">$${p.cost_price} / $${p.price}</td>
-                      <td class="py-3 px-4">${p.stock}</td>
-                  </tr>`;
-              setTimeout(() => { if(safeCode!=='N/A') JsBarcode(`#inv-bc-${idx}`, safeCode, { width: 1, height: 25, fontSize: 10 }); }, 50);
-          });
-      }
-
-      function generateMultipleLiveBarcodes() {
-          const text = document.getElementById('live-barcode-input').value;
-          const format = document.getElementById('live-barcode-format').value;
-          const container = document.getElementById('live-barcode-container');
-          container.innerHTML = '';
-          const codes = text.split('\n').filter(c => c.trim() !== '');
-          codes.forEach((code, idx) => {
-              const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-              svg.id = `live-bc-gen-${idx}`;
-              svg.classList.add('bg-white', 'p-2', 'rounded', 'shadow');
-              container.appendChild(svg);
-              try { JsBarcode(svg, code.trim(), { format: format, width: 1.5, height: 50 }); } catch(e) {}
-          });
-      }
-
-      function printInventoryBarcodesLetter() {
-          const selected = Array.from(document.querySelectorAll('.inv-chk:checked')).map(cb => cb.value).filter(v => v !== 'N/A');
-          if (selected.length === 0) return alert('Selecciona al menos un producto válido.');
-          printLetterSheet(selected);
-      }
-
-      function printLiveBarcodesLetter() {
-          const codes = document.getElementById('live-barcode-input').value.split('\n').filter(c => c.trim() !== '');
-          if (codes.length === 0) return alert('Escribe al menos un código.');
-          printLetterSheet(codes);
-      }
-
-      function printLetterSheet(codes) {
-          const letterDiv = document.getElementById('printable-letter');
-          letterDiv.innerHTML = '';
-          codes.forEach((code, idx) => {
-              const wrapper = document.createElement('div');
-              wrapper.innerHTML = `<svg id="print-letter-${idx}"></svg>`;
-              letterDiv.appendChild(wrapper);
-              setTimeout(() => { 
-                  try { JsBarcode(`#print-letter-${idx}`, code, { format: "CODE128", width: 1.8, height: 60, displayValue: true }); } catch(e){}
-              }, 50);
-          });
-          
-          document.body.classList.add('print-letter');
-          setTimeout(() => {
-              window.print();
-              document.body.classList.remove('print-letter');
-          }, 500);
-      }
+      // Al cargar la página, mostrar login (o restaurar sesión si existe)
+      window.onload = () => {
+          const savedRole = localStorage.getItem('kev_nay_role');
+          if (savedRole) {
+              // Restaurar sesión: mostrar app directamente
+              currentRole = savedRole;
+              document.getElementById('login-screen').classList.add('hidden');
+              document.getElementById('app-main').classList.remove('hidden');
+              document.getElementById('app-main').classList.add('flex');
+              applyRoleVisibility();
+              const badge = document.getElementById('user-badge');
+              badge.innerHTML = `<i class="fa-solid fa-user mr-1"></i>${currentRole === 'admin' ? 'Administrador' : 'Cajero'}`;
+              initApp();
+          }
+          // Si no hay sesión, la pantalla de login ya está visible
+      };
   </script>
 </body>
 </html>
