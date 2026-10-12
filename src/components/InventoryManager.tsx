@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Product } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
+import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 
 interface InventoryManagerProps {
   products: Product[];
@@ -17,6 +18,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const [search, setSearch] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('Todos');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  const [scannerOpen, setScannerOpen] = useState<boolean>(false);
+  const [scannerMode, setScannerMode] = useState<'create_barcode' | 'search_filter'>('create_barcode');
   const [selectedProductForAdjust, setSelectedProductForAdjust] = useState<Product | null>(null);
   const [adjustDelta, setAdjustDelta] = useState<number>(0);
   const [adjustReason, setAdjustReason] = useState<string>('Compra / Reposición');
@@ -137,6 +140,19 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             placeholder="Buscar por SKU, producto o código..."
             className="w-full bg-[#141b2b] border border-[#374151]/40 rounded-lg px-3 py-1.5 text-xs text-[#dce2f7] placeholder-[#e6bdb8]/60 focus:outline-none"
           />
+          <button
+            type="button"
+            onClick={() => {
+              posAudio.playKeyClick();
+              setScannerMode('search_filter');
+              setScannerOpen(true);
+            }}
+            title="Escanear con cámara para buscar"
+            className="px-2.5 py-1.5 rounded-lg bg-[#232a3a] hover:bg-[#323949] text-[#adc6ff] border border-[#374151]/40 flex items-center gap-1 text-xs transition-colors shrink-0"
+          >
+            <span className="material-symbols-outlined text-[17px]">photo_camera</span>
+            <span className="hidden sm:inline">Escanear</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -452,13 +468,27 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               </div>
 
               <div>
-                <label className="text-[11px] text-[#e6bdb8] block mb-1">Código de Barras (Opcional):</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] text-[#e6bdb8]">Código de Barras / Guía de Envío:</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setScannerMode('create_barcode');
+                      setScannerOpen(true);
+                    }}
+                    className="px-2 py-0.5 rounded bg-[#dc2626]/20 hover:bg-[#dc2626] text-[#ef4444] hover:text-white border border-[#dc2626]/40 text-[10px] font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">photo_camera</span>
+                    <span>Escanear con Cámara</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={newBarcode}
                   onChange={(e) => setNewBarcode(e.target.value)}
-                  placeholder="Dejar vacío para auto-generar EAN-13"
-                  className="w-full bg-[#070e1d] border border-[#374151]/50 rounded-lg p-2 text-xs font-mono text-[#dce2f7]"
+                  placeholder="Escanea o escribe código/guía (ej: 770209001011 o GUIA-SRV-901)"
+                  className="w-full bg-[#070e1d] border border-[#374151]/50 rounded-lg p-2 text-xs font-mono text-[#dce2f7] focus:outline-none focus:border-[#dc2626]"
                 />
               </div>
 
@@ -481,6 +511,36 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Barcode / Shipping Label Camera Scanner Modal */}
+      <BarcodeCameraScanner
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => {
+          if (scannerMode === 'create_barcode') {
+            setNewBarcode(code);
+            if (!newSku) {
+              const prefix = newCategory.slice(0, 3).toUpperCase();
+              setNewSku(`${prefix}-${code.slice(-4)}`);
+            }
+          } else {
+            setSearch(code);
+          }
+          setScannerOpen(false);
+        }}
+        title={
+          scannerMode === 'create_barcode'
+            ? 'Escanear Código / Guía para Nuevo Producto'
+            : 'Escanear para Buscar en Inventario'
+        }
+        description="Apunta la cámara al código de barras o guía de paquetería"
+        sampleCodes={[
+          { label: 'EAN-13', code: '770209001011' },
+          { label: 'Guía Coordinadora', code: 'GUIA-COO-748921' },
+          { label: 'Guía Servientrega', code: 'GUIA-SRV-901842' },
+          { label: 'Código Barras', code: '770200102045' },
+        ]}
+      />
     </div>
   );
 };

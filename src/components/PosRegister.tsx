@@ -3,6 +3,7 @@ import { Cashier, Product, CartItem, PaymentMethod, SaleTicket, AuditEvent } fro
 import { formatCOP, formatNumberCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
 import { ThermalReceipt } from './ThermalReceipt';
+import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 
 interface PosRegisterProps {
   cashier: Cashier;
@@ -26,8 +27,6 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerName, setCustomerName] = useState<string>('Consumidor Final');
   const [showScannerModal, setShowScannerModal] = useState<boolean>(false);
-  const [barcodeInput, setBarcodeInput] = useState<string>('');
-  const [scannerNotice, setScannerNotice] = useState<string>('');
   
   // Payment state
   const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(false);
@@ -111,21 +110,19 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   const subtotalBase = total - taxTotal;
 
   // Barcode scanner trigger
-  const handleBarcodeScan = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const found = products.find((p) => p.barcode === barcodeInput.trim() || p.sku.toLowerCase() === barcodeInput.trim().toLowerCase());
+  const handleBarcodeScan = (scannedCode: string) => {
+    const found = products.find(
+      (p) =>
+        p.barcode === scannedCode.trim() ||
+        p.sku.toLowerCase() === scannedCode.trim().toLowerCase()
+    );
     if (found) {
       posAudio.playScanBeep();
       addToCart(found);
-      setScannerNotice(`¡${found.name} agregado al ticket!`);
-      setBarcodeInput('');
-      setTimeout(() => {
-        setScannerNotice('');
-        setShowScannerModal(false);
-      }, 700);
+      setShowScannerModal(false);
     } else {
       posAudio.playErrorBuzz();
-      setScannerNotice('Código de barras no encontrado en catálogo.');
+      alert(`Código o guía "${scannedCode}" no encontrado en catálogo.`);
     }
   };
 
@@ -489,81 +486,18 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
         </div>
       </div>
 
-      {/* Barcode Laser Scanner Simulator Modal */}
-      {showScannerModal && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-5 w-full max-w-sm flex flex-col space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#dc2626] text-[24px]">barcode_scanner</span>
-                <span className="text-base font-bold text-[#dce2f7]">Lector Óptico de Barras</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowScannerModal(false)}
-                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
-            </div>
-
-            {/* Laser Visual Window */}
-            <div className="relative h-36 bg-black rounded-xl overflow-hidden flex items-center justify-center border border-[#374151]/50">
-              <div className="w-full h-0.5 bg-[#ef4444] shadow-[0_0_12px_#ef4444] animate-pulse"></div>
-              <div className="absolute inset-x-8 inset-y-4 border-2 border-dashed border-[#10b981]/50 rounded-lg pointer-events-none flex items-center justify-center">
-                <span className="text-[11px] text-[#e6bdb8]/60 font-mono">Alinear código aquí</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleBarcodeScan} className="flex flex-col space-y-2">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                autoFocus
-                placeholder="Ingresa código o SKU (ej: 770209001011)"
-                className="w-full p-2.5 rounded-xl bg-[#070e1d] border border-[#374151]/60 text-xs text-[#dce2f7] font-mono placeholder-[#e6bdb8]/50"
-              />
-              {scannerNotice && (
-                <span className="text-xs font-mono text-[#10b981] font-semibold">{scannerNotice}</span>
-              )}
-
-              {/* Sample Quick Barcode Buttons */}
-              <div className="pt-1 flex flex-wrap gap-1.5">
-                <span className="text-[10px] text-[#e6bdb8] w-full">Prueba rápida con códigos de muestra:</span>
-                {products.slice(0, 3).map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      setBarcodeInput(p.barcode);
-                    }}
-                    className="text-[10px] font-mono px-2 py-1 rounded bg-[#232a3a] text-[#adc6ff] hover:bg-[#323949]"
-                  >
-                    {p.name.split(' ')[0]}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowScannerModal(false)}
-                  className="flex-1 py-2 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7]"
-                >
-                  Cerrar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-[#dc2626] text-xs font-semibold text-white"
-                >
-                  Escanear
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Real Barcode Camera Scanner Modal */}
+      <BarcodeCameraScanner
+        isOpen={showScannerModal}
+        onClose={() => setShowScannerModal(false)}
+        onScan={handleBarcodeScan}
+        title="Lector Óptico de Cámara POS"
+        description="Apunta la cámara al código de barras del producto"
+        sampleCodes={products.slice(0, 4).map((p) => ({
+          label: p.name.split(' ')[0],
+          code: p.barcode,
+        }))}
+      />
 
       {/* Checkout / Payment Modal */}
       {showCheckoutModal && (
