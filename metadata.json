@@ -1,0 +1,6 @@
+{
+  "name": "Kev Nay POS & Cloud Hub",
+  "description": "Terminal de punto de venta retail de alta fidelidad con bloqueo por PIN, arqueo de caja, facturación e inventario.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

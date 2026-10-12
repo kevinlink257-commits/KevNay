@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #0c1322;
+    --surface-container: #191f2f;
+    --surface-container-high: #232a3a;
+    --surface-container-highest: #2e3545;
+    --surface-container-low: #141b2b;
+    --surface-container-lowest: #070e1d;
+    --crimson-primary: #dc2626;
+    --crimson-bright: #ef4444;
+    --emerald-success: #10b981;
+    --amber-warning: #f59e0b;
+  }
+
+  body {
+    background-color: #0c1322;
+    color: #dce2f7;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.font-mono-display {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.font-mono-sm {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom receipt print styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-receipt-printable, #thermal-receipt-printable * {
+    visibility: visible;
+  }
+  #thermal-receipt-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm;
+    margin: 0;
+    padding: 2mm;
+    background: white !important;
+    color: black !important;
+  }
+}
+
+/* Hide scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Keypad pulse animation */
+@keyframes pinPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); box-shadow: 0 0 16px rgba(239, 68, 68, 0.9); }
+  100% { transform: scale(1.1); box-shadow: 0 0 12px rgba(239, 68, 68, 0.7); }
+}
+
+.pin-active-pulse {
+  animation: pinPulse 0.3s ease-out forwards;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.animate-shake {
+  animation: shake 0.35s ease-in-out;
+}
