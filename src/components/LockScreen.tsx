@@ -358,6 +358,21 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                   </button>
                 );
               })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setPin('');
+                  setFeedbackStatus('normal');
+                  setFeedback('Sesión de operador restablecida. Ingresa nuevo PIN.');
+                  setShowSwitchPanel(false);
+                }}
+                className="w-full mt-1.5 py-1.5 px-2 rounded-lg bg-[#dc2626]/20 hover:bg-[#dc2626]/30 text-[#ef4444] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors border border-[#dc2626]/30"
+              >
+                <span className="material-symbols-outlined text-[15px]">logout</span>
+                <span>Cerrar Sesión / Liberar Turno</span>
+              </button>
             </div>
           )}
         </div>

@@ -348,7 +348,7 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
         </div>
 
         {/* Recharts Bar Chart Container */}
-        <div className="w-full h-64 sm:h-72 pt-2">
+        <div className="w-full min-w-0 h-64 sm:h-72 pt-2">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={hourlySalesData}

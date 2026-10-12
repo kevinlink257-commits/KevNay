@@ -8,6 +8,7 @@ interface PosRegisterProps {
   cashier: Cashier;
   products: Product[];
   onLockTerminal: () => void;
+  onLogout?: () => void;
   onCompleteSale: (ticket: SaleTicket, updatedCashier: Cashier) => void;
   onLogAudit: (type: AuditEvent['type'], details: string) => void;
 }
@@ -16,6 +17,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   cashier,
   products,
   onLockTerminal,
+  onLogout,
   onCompleteSale,
   onLogAudit,
 }) => {
@@ -229,11 +231,28 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
               posAudio.playKeyClick();
               onLockTerminal();
             }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#dc2626]/20 hover:bg-[#dc2626] text-[#ef4444] hover:text-white border border-[#dc2626]/40 text-xs font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#e6bdb8] hover:text-white border border-[#374151]/40 text-xs font-semibold transition-colors shadow-sm"
+            title="Bloquear Terminal (conserva sesión)"
           >
-            <span className="material-symbols-outlined text-[18px]">lock</span>
-            <span>Bloquear</span>
+            <span className="material-symbols-outlined text-[17px]">lock</span>
+            <span className="hidden sm:inline">Bloquear</span>
           </button>
+
+          {/* Cerrar Sesión button */}
+          {onLogout && (
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                onLogout();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-[#dc2626]/20 hover:bg-[#dc2626] text-[#ef4444] hover:text-white border border-[#dc2626]/40 text-xs font-semibold transition-colors shadow-sm"
+              title="Cerrar Sesión del Cajero"
+            >
+              <span className="material-symbols-outlined text-[17px]">logout</span>
+              <span className="hidden xs:inline">Cerrar Sesión</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -346,7 +365,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
         </div>
 
         {/* Sales Ticket / Cart Sidebar (5 cols on desktop) */}
-        <div className="lg:col-span-5 xl:col-span-4 flex flex-col bg-[#191f2f] rounded-2xl border border-[#374151]/50 p-4 shadow-xl">
+        <div id="pos-ticket-sidebar" className="lg:col-span-5 xl:col-span-4 flex flex-col bg-[#191f2f] rounded-2xl border border-[#374151]/50 p-4 shadow-xl">
           {/* Ticket Header */}
           <div className="flex items-center justify-between pb-3 border-b border-[#374151]/40">
             <div className="flex items-center gap-2">
@@ -677,6 +696,32 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Mobile Cart Bar (visible on mobile screens when cart has items) */}
+      {cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-16 inset-x-3 z-30 pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => {
+              posAudio.playKeyClick();
+              const el = document.getElementById('pos-ticket-sidebar');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="w-full bg-[#dc2626] hover:bg-[#ef4444] text-white p-3 rounded-2xl shadow-2xl flex items-center justify-between border border-[#ef4444]/40 active:scale-[0.98] transition-transform"
+          >
+            <div className="flex items-center gap-2 font-mono text-xs font-bold">
+              <span className="w-6 h-6 rounded-full bg-white text-[#dc2626] flex items-center justify-center text-xs">
+                {cart.reduce((a, b) => a + b.quantity, 0)}
+              </span>
+              <span>Ver Ticket / Pagar</span>
+            </div>
+            <div className="flex items-center gap-1 font-mono text-sm font-bold">
+              <span>{formatCOP(total)}</span>
+              <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
+            </div>
+          </button>
         </div>
       )}
 

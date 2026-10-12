@@ -50,11 +50,18 @@ export default function App() {
     setAuditLogs((prev) => [newLog, ...prev]);
   }, [currentCashier.name]);
 
-  // Lock terminal
+  // Lock terminal (preserves active cashier session in memory)
   const handleLockTerminal = () => {
     setIsLocked(true);
     posAudio.playKeyClick();
     logAudit('lock', `Bloqueo manual de terminal POS-01 por ${currentCashier.name}`);
+  };
+
+  // Cerrar Sesión (Logs out the current cashier and resets to lock screen)
+  const handleLogout = () => {
+    posAudio.playKeyClick();
+    logAudit('lock', `Cierre de sesión manual realizado por ${currentCashier.name}`);
+    setIsLocked(true);
   };
 
   // Unlock terminal
@@ -132,13 +139,12 @@ export default function App() {
     posAudio.setEnabled(nextVal);
   };
 
-  // Manage auto-lock on inactivity (optional simulation)
+  // Manage auto-lock on inactivity
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const resetTimer = () => {
       clearTimeout(timer);
       if (!isLocked) {
-        // Auto lock after 3 minutes of total inactivity
         timer = setTimeout(() => {
           setIsLocked(true);
           logAudit('lock', 'Bloqueo automático por inactividad de 3 min');
@@ -157,14 +163,16 @@ export default function App() {
     };
   }, [isLocked, logAudit]);
 
+  const isMobileLayout = viewMode === 'mobile_device';
+
   return (
-    <div className="min-h-screen bg-[#0c1322] text-[#dce2f7] flex flex-col font-sans selection:bg-[#dc2626] selection:text-white">
-      {/* Top Floating Viewport Control (allows user to toggle view mode & lock anytime) */}
-      <div className="bg-[#070e1d] border-b border-[#374151]/50 px-4 py-1.5 flex items-center justify-between text-xs z-50">
+    <div className="min-h-screen bg-[#0c1322] text-[#dce2f7] flex flex-col font-sans selection:bg-[#dc2626] selection:text-white overflow-x-hidden">
+      {/* Top Floating Viewport Control Bar */}
+      <div className="bg-[#070e1d] border-b border-[#374151]/50 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs z-50">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[#90cdff] font-bold">Kev Nay POS Hub</span>
-          <span className="text-[#374151]">|</span>
-          <span className="text-[#e6bdb8] hidden sm:inline">Terminal Retail v4.2.1-prod</span>
+          <span className="font-mono text-[#90cdff] font-bold">Kev Nay POS</span>
+          <span className="text-[#374151] hidden sm:inline">|</span>
+          <span className="text-[#e6bdb8] hidden md:inline">Terminal Retail v4.2.1-prod</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -172,7 +180,10 @@ export default function App() {
           <div className="flex items-center bg-[#191f2f] rounded-lg p-0.5 border border-[#374151]/40">
             <button
               type="button"
-              onClick={() => setViewMode('mobile_device')}
+              onClick={() => {
+                posAudio.playKeyClick();
+                setViewMode('mobile_device');
+              }}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 viewMode === 'mobile_device' ? 'bg-[#232a3a] text-white shadow-sm' : 'text-[#e6bdb8]'
               }`}
@@ -181,7 +192,10 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('responsive')}
+              onClick={() => {
+                posAudio.playKeyClick();
+                setViewMode('responsive');
+              }}
               className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                 viewMode === 'responsive' ? 'bg-[#232a3a] text-white shadow-sm' : 'text-[#e6bdb8]'
               }`}
@@ -221,21 +235,21 @@ export default function App() {
             <span className="material-symbols-outlined text-[14px]">
               {isLocked ? 'lock_open' : 'lock'}
             </span>
-            <span>{isLocked ? 'Desbloquear Rápido' : 'Bloquear Terminal'}</span>
+            <span className="hidden xs:inline">{isLocked ? 'Desbloquear' : 'Bloquear'}</span>
           </button>
         </div>
       </div>
 
       {/* Screen Frame Wrapping */}
       <div
-        className={`flex-1 flex flex-col items-center justify-start ${
-          viewMode === 'mobile_device' ? 'p-0 sm:py-6' : ''
+        className={`flex-1 flex flex-col items-center justify-start w-full ${
+          isMobileLayout ? 'p-0 sm:py-4 bg-[#070e1d]/50' : 'p-0'
         }`}
       >
         <div
-          className={`w-full flex flex-col flex-1 ${
-            viewMode === 'mobile_device'
-              ? 'max-w-md bg-[#0c1322] sm:border sm:border-[#374151]/60 sm:rounded-[32px] sm:shadow-[0_0_50px_rgba(0,0,0,0.8)] sm:overflow-hidden relative min-h-[840px]'
+          className={`w-full flex flex-col flex-1 transition-all ${
+            isMobileLayout
+              ? 'max-w-[420px] bg-[#0c1322] sm:border sm:border-[#374151]/70 sm:rounded-[36px] sm:shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-x-hidden relative min-h-[100dvh] pb-16'
               : 'w-full'
           }`}
         >
@@ -252,96 +266,102 @@ export default function App() {
               onToggleSound={toggleSound}
             />
           ) : (
-            /* If UNLOCKED: Render POS Workspace with Top Navigation Bar */
-            <div className="flex-1 flex flex-col bg-[#0c1322]">
+            /* If UNLOCKED: Render POS Workspace */
+            <div className="flex-1 flex flex-col bg-[#0c1322] w-full min-w-0">
               {/* Unlocked App Navigation Bar */}
               <header className="bg-[#191f2f]/95 backdrop-blur-md border-b border-[#374151]/40 sticky top-0 z-40">
-                <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+                <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-4">
                   {/* Left Brand & POS badge */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                     <div className="w-8 h-8 rounded-lg bg-[#dc2626] text-white flex items-center justify-center font-bold shadow-md">
                       <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
                     </div>
                     <div className="flex flex-col">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-sm tracking-tight text-white">KEV NAY POS</span>
-                        <span className="font-mono text-[10px] text-[#10b981] px-1.5 rounded bg-[#10b981]/20 font-semibold">
+                        <span className="font-bold text-xs sm:text-sm tracking-tight text-white whitespace-nowrap">
+                          KEV NAY POS
+                        </span>
+                        <span className="font-mono text-[9px] sm:text-[10px] text-[#10b981] px-1 rounded bg-[#10b981]/20 font-semibold">
                           EN LÍNEA
                         </span>
                       </div>
-                      <span className="text-[10px] text-[#e6bdb8]">Caja 01 • Turno Activo</span>
+                      <span className="text-[9px] sm:text-[10px] text-[#e6bdb8] truncate">
+                        POS-01 • {currentCashier.name}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Navigation Tabs */}
-                  <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        posAudio.playKeyClick();
-                        setActiveTab('pos');
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        activeTab === 'pos'
-                          ? 'bg-[#dc2626] text-white shadow-sm'
-                          : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">point_of_sale</span>
-                      <span>Caja POS</span>
-                    </button>
+                  {/* Desktop Navigation Tabs (Hidden in Mobile Layout or Small Screens) */}
+                  {!isMobileLayout && (
+                    <nav className="hidden md:flex items-center gap-1 overflow-x-auto no-scrollbar">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setActiveTab('pos');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'pos'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">point_of_sale</span>
+                        <span>Caja POS</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        posAudio.playKeyClick();
-                        setActiveTab('inventory');
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        activeTab === 'inventory'
-                          ? 'bg-[#dc2626] text-white shadow-sm'
-                          : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">inventory_2</span>
-                      <span>Inventario</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setActiveTab('inventory');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'inventory'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+                        <span>Inventario</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        posAudio.playKeyClick();
-                        setActiveTab('shift');
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        activeTab === 'shift'
-                          ? 'bg-[#dc2626] text-white shadow-sm'
-                          : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">calculate</span>
-                      <span>Cierre de Turno</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setActiveTab('shift');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'shift'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">calculate</span>
+                        <span>Cierre de Turno</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        posAudio.playKeyClick();
-                        setActiveTab('tickets');
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        activeTab === 'tickets'
-                          ? 'bg-[#dc2626] text-white shadow-sm'
-                          : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">receipt_long</span>
-                      <span>Tickets</span>
-                    </button>
-                  </nav>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setActiveTab('tickets');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'tickets'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                        <span>Tickets</span>
+                      </button>
+                    </nav>
+                  )}
 
-                  {/* Right: Cashier Info & Lock button */}
-                  <div className="flex items-center gap-2">
+                  {/* Right: Actions, Logout & Lock */}
+                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => {
@@ -351,37 +371,42 @@ export default function App() {
                       title="Registro de Auditoría"
                       className="p-1.5 rounded-lg bg-[#232a3a] text-[#e6bdb8] hover:text-white transition-colors"
                     >
-                      <span className="material-symbols-outlined text-[18px]">security</span>
+                      <span className="material-symbols-outlined text-[17px]">security</span>
                     </button>
 
-                    <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-[#141b2b] border border-[#374151]/30">
-                      <img
-                        src={currentCashier.avatar}
-                        alt={currentCashier.name}
-                        className="w-6 h-6 rounded-lg object-cover"
-                      />
-                      <span className="text-xs font-semibold text-white">{currentCashier.name}</span>
-                    </div>
+                    {/* Cerrar Sesión button */}
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-[#dc2626]/20 hover:bg-[#dc2626] text-[#ef4444] hover:text-white border border-[#dc2626]/40 text-xs font-semibold transition-all shadow-sm"
+                      title="Cerrar sesión del operador"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">logout</span>
+                      <span className="hidden sm:inline">Cerrar Sesión</span>
+                    </button>
 
+                    {/* Bloquear button */}
                     <button
                       type="button"
                       onClick={handleLockTerminal}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#dc2626]/20 hover:bg-[#dc2626] text-[#ef4444] hover:text-white border border-[#dc2626]/40 text-xs font-semibold transition-all shadow-sm"
+                      className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-[#232a3a] hover:bg-[#323949] text-[#e6bdb8] hover:text-white border border-[#374151]/40 text-xs font-semibold transition-all shadow-sm"
+                      title="Bloquear terminal (conserva sesión)"
                     >
                       <span className="material-symbols-outlined text-[16px]">lock</span>
-                      <span className="hidden sm:inline">Bloquear</span>
+                      <span className="hidden md:inline">Bloquear</span>
                     </button>
                   </div>
                 </div>
               </header>
 
               {/* Tab Contents */}
-              <main className="flex-1 flex flex-col">
+              <main className="flex-1 flex flex-col w-full min-w-0">
                 {activeTab === 'pos' && (
                   <PosRegister
                     cashier={currentCashier}
                     products={products}
                     onLockTerminal={handleLockTerminal}
+                    onLogout={handleLogout}
                     onCompleteSale={handleCompleteSale}
                     onLogAudit={logAudit}
                   />
@@ -412,6 +437,73 @@ export default function App() {
                   <TicketsHistory tickets={tickets} onVoidTicket={handleVoidTicket} />
                 )}
               </main>
+
+              {/* Mobile Fixed Bottom Navigation Tab Bar (Active in mobile layout or small screens) */}
+              <nav
+                className={`fixed bottom-0 z-40 bg-[#191f2f]/95 backdrop-blur-xl border-t border-[#374151]/50 ${
+                  isMobileLayout
+                    ? 'inset-x-0 max-w-[420px] mx-auto'
+                    : 'inset-x-0 md:hidden'
+                }`}
+              >
+                <div className="grid grid-cols-4 h-15 items-center px-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setActiveTab('pos');
+                    }}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors ${
+                      activeTab === 'pos' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">point_of_sale</span>
+                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Caja POS</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setActiveTab('inventory');
+                    }}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors ${
+                      activeTab === 'inventory' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">inventory_2</span>
+                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Inventario</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setActiveTab('shift');
+                    }}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors ${
+                      activeTab === 'shift' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">calculate</span>
+                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Cierre</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setActiveTab('tickets');
+                    }}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors ${
+                      activeTab === 'tickets' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">receipt_long</span>
+                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Tickets</span>
+                  </button>
+                </div>
+              </nav>
             </div>
           )}
         </div>
