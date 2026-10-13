@@ -178,11 +178,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       const adminPin = adminUser ? adminUser.pin : '9999';
 
       setTimeout(() => {
-        // Valid if matches cashier's pin, admin's pin, or sample pin 7410
+        // Valid if matches cashier's pin or admin's pin
         const isValid =
           inputPin === currentCashier.pin ||
-          inputPin === adminPin ||
-          inputPin === '7410';
+          inputPin === adminPin;
 
         if (isValid) {
           setFeedbackStatus('success');
@@ -264,10 +263,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
     if (
       supervisorPin === adminPin ||
-      supervisorPin === 'admin' ||
-      supervisorPin === '9999' ||
-      supervisorPin === '0000' ||
-      supervisorPin === currentCashier.pin
+      (adminPin === '9999' && supervisorPin === '9999')
     ) {
       posAudio.playSuccessChime();
       setShowSupervisorModal(false);

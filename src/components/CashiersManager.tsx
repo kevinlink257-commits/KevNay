@@ -11,6 +11,7 @@ interface CashiersManagerProps {
   onDeleteCashier: (cashierId: string) => void;
   onSwitchCashier: (cashier: Cashier) => void;
   onLogAudit: (type: AuditEvent['type'], details: string) => void;
+  onOpenBackupModal?: () => void;
 }
 
 export const CashiersManager: React.FC<CashiersManagerProps> = ({
@@ -21,6 +22,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   onDeleteCashier,
   onSwitchCashier,
   onLogAudit,
+  onOpenBackupModal,
 }) => {
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
@@ -271,6 +273,21 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onOpenBackupModal && (
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                onOpenBackupModal();
+              }}
+              title="Descargar copia de respaldo JSON (Inventario, Cajeros y Auditoría)"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#f59e0b]/20 hover:bg-[#f59e0b] text-[#f59e0b] hover:text-[#3d2400] border border-[#f59e0b]/40 text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">download</span>
+              <span>Respaldar JSON</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -346,7 +363,21 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenBackupModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  onOpenBackupModal();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#f59e0b] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-md active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[17px]">backup</span>
+                <span>Descargar Respaldo JSON</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => {

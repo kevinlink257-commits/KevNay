@@ -11,6 +11,7 @@ interface InventoryManagerProps {
   onDeleteProduct: (productId: string) => void;
   onClearInventory: () => void;
   onRestoreDefaultCatalog?: () => void;
+  onOpenBackupModal?: () => void;
 }
 
 export const InventoryManager: React.FC<InventoryManagerProps> = ({
@@ -20,6 +21,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   onDeleteProduct,
   onClearInventory,
   onRestoreDefaultCatalog,
+  onOpenBackupModal,
 }) => {
   const [search, setSearch] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('Todos');
@@ -192,6 +194,23 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               </option>
             ))}
           </select>
+
+          {/* Export / Backup JSON Button */}
+          {onOpenBackupModal && (
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                onOpenBackupModal();
+              }}
+              title="Descargar respaldo JSON completo del inventario, cajeros y auditoría"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f59e0b]/20 hover:bg-[#f59e0b] text-[#f59e0b] hover:text-[#3d2400] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-sm active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[17px]">download</span>
+              <span className="hidden sm:inline">Respaldar JSON</span>
+              <span className="sm:hidden">JSON</span>
+            </button>
+          )}
 
           {/* Delete All Inventory Button */}
           {products.length > 0 && (

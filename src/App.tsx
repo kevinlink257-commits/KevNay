@@ -14,6 +14,8 @@ import { ShiftReportView } from './components/ShiftReportView';
 import { TicketsHistory } from './components/TicketsHistory';
 import { CashiersManager } from './components/CashiersManager';
 import { AuditLogModal } from './components/AuditLogModal';
+import { BackupManagerModal } from './components/BackupManagerModal';
+import { exportAndDownloadBackup } from './utils/backup';
 
 export default function App() {
   // App state with local persistence
@@ -49,6 +51,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers'>('pos');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
+  const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'responsive' | 'mobile_device'>('responsive');
 
   // RBAC Access Control Gate State for Non-Admin Cashiers
@@ -217,6 +220,40 @@ export default function App() {
   const handleRestoreDefaultCatalog = () => {
     setProducts(INITIAL_PRODUCTS);
     logAudit('lock', `Catálogo de inventario de demostración restaurado`);
+  };
+
+  // Direct export backup function
+  const handleExportBackup = () => {
+    posAudio.playCashRegisterChime();
+    exportAndDownloadBackup({
+      inventory: products,
+      cashiers,
+      auditLogs,
+      tickets,
+      exportedBy: currentCashier.name,
+      terminalId: 'POS-01',
+    });
+    logAudit(
+      'unlock_supervisor',
+      `Exportación JSON de respaldo descargada por ${currentCashier.name} (${products.length} productos, ${cashiers.length} cajeros, ${auditLogs.length} logs)`
+    );
+  };
+
+  // Restore backup state function
+  const handleRestoreBackup = (backup: {
+    inventory?: Product[];
+    cashiers?: Cashier[];
+    auditLogs?: AuditEvent[];
+  }) => {
+    if (backup.inventory && Array.isArray(backup.inventory)) {
+      setProducts(backup.inventory);
+    }
+    if (backup.cashiers && Array.isArray(backup.cashiers)) {
+      setCashiers(backup.cashiers);
+    }
+    if (backup.auditLogs && Array.isArray(backup.auditLogs)) {
+      setAuditLogs(backup.auditLogs);
+    }
   };
 
   // Tab navigation with Role-Based Access Control
@@ -516,6 +553,22 @@ export default function App() {
 
                   {/* Right: Actions, Logout & Lock */}
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                    {/* Admin Backup JSON button */}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setShowBackupModal(true);
+                        }}
+                        title="Respaldo Local JSON (Inventario, Cajeros y Auditoría)"
+                        className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-[#f59e0b]/20 hover:bg-[#f59e0b] text-[#f59e0b] hover:text-[#3d2400] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-sm"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">backup</span>
+                        <span className="hidden lg:inline">Respaldo JSON</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -576,6 +629,7 @@ export default function App() {
                     onDeleteProduct={handleDeleteProduct}
                     onClearInventory={handleClearInventory}
                     onRestoreDefaultCatalog={handleRestoreDefaultCatalog}
+                    onOpenBackupModal={() => setShowBackupModal(true)}
                   />
                 )}
 
@@ -588,6 +642,7 @@ export default function App() {
                     onDeleteCashier={handleDeleteCashier}
                     onSwitchCashier={handleSwitchCashier}
                     onLogAudit={logAudit}
+                    onOpenBackupModal={() => setShowBackupModal(true)}
                   />
                 )}
 
@@ -801,6 +856,21 @@ export default function App() {
           logs={auditLogs}
           onClose={() => setShowAuditModal(false)}
           onClearLogs={() => setAuditLogs([])}
+        />
+      )}
+
+      {/* Admin Backup JSON Modal */}
+      {showBackupModal && (
+        <BackupManagerModal
+          inventory={products}
+          cashiers={cashiers}
+          auditLogs={auditLogs}
+          tickets={tickets}
+          currentCashier={currentCashier}
+          isOpen={showBackupModal}
+          onClose={() => setShowBackupModal(false)}
+          onLogAudit={logAudit}
+          onRestoreBackup={handleRestoreBackup}
         />
       )}
     </div>
