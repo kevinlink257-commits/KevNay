@@ -174,11 +174,14 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       setFeedbackStatus('verifying');
       setFeedback('Verificando PIN...');
 
+      const adminUser = cashiers.find((c) => c.isMaster);
+      const adminPin = adminUser ? adminUser.pin : '9999';
+
       setTimeout(() => {
-        // Valid if matches cashier's pin, master pin 9999, or sample pin 7410
+        // Valid if matches cashier's pin, admin's pin, or sample pin 7410
         const isValid =
           inputPin === currentCashier.pin ||
-          inputPin === '9999' ||
+          inputPin === adminPin ||
           inputPin === '7410';
 
         if (isValid) {
@@ -204,7 +207,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         }
       }, 350);
     },
-    [currentCashier, onUnlock, onLogAudit]
+    [currentCashier, cashiers, onUnlock, onLogAudit]
   );
 
   const handleKey = (digit: string) => {
@@ -256,19 +259,22 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   // Supervisor Master Unlock
   const handleSupervisorAuthorize = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const adminUser = cashiers.find((c) => c.isMaster) || currentCashier;
+    const adminPin = adminUser.pin;
+
     if (
+      supervisorPin === adminPin ||
+      supervisorPin === 'admin' ||
       supervisorPin === '9999' ||
       supervisorPin === '0000' ||
-      supervisorPin === 'admin' ||
       supervisorPin === currentCashier.pin
     ) {
       posAudio.playSuccessChime();
-      const adminCashier = cashiers.find((c) => c.isMaster) || currentCashier;
       setShowSupervisorModal(false);
       onLogAudit('unlock_supervisor', `Desbloqueo maestro autorizado por supervisor`);
-      onUnlock(adminCashier);
+      onUnlock(adminUser);
     } else {
-      setSupervisorError('Credencial de supervisor no válida. (Prueba con 9999 o 0000)');
+      setSupervisorError(`Credencial no válida. (PIN del Administrador ${adminUser.name})`);
       posAudio.playErrorBuzz();
     }
   };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Cashier, Product, SaleTicket, AuditEvent } from './types/pos';
 import {
   INITIAL_CASHIERS,
@@ -12,25 +12,72 @@ import { PosRegister } from './components/PosRegister';
 import { InventoryManager } from './components/InventoryManager';
 import { ShiftReportView } from './components/ShiftReportView';
 import { TicketsHistory } from './components/TicketsHistory';
+import { CashiersManager } from './components/CashiersManager';
 import { AuditLogModal } from './components/AuditLogModal';
 
 export default function App() {
-  // App state
-  const [isLocked, setIsLocked] = useState<boolean>(true); // Starts locked to match user screenshot
-  const [cashiers, setCashiers] = useState<Cashier[]>(INITIAL_CASHIERS);
-  const [currentCashier, setCurrentCashier] = useState<Cashier>(INITIAL_CASHIERS[0]); // Kevin N.
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  // App state with local persistence
+  const [cashiers, setCashiers] = useState<Cashier[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_cashiers');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_CASHIERS;
+  });
+
+  const [currentCashier, setCurrentCashier] = useState<Cashier>(() => {
+    try {
+      const saved = localStorage.getItem('pos_current_cashier');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_CASHIERS[0]; // Kevin N.
+  });
+
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_products');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_PRODUCTS;
+  });
+
+  const [isLocked, setIsLocked] = useState<boolean>(true); // Starts locked to match reference design
   const [tickets, setTickets] = useState<SaleTicket[]>(INITIAL_TICKETS);
   const [auditLogs, setAuditLogs] = useState<AuditEvent[]>(INITIAL_AUDIT_LOGS);
 
   // Active view inside POS
-  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers'>('pos');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'responsive' | 'mobile_device'>('responsive');
 
+  // RBAC Access Control Gate State for Non-Admin Cashiers
+  const [showAdminGateModal, setShowAdminGateModal] = useState<boolean>(false);
+  const [pendingAdminTab, setPendingAdminTab] = useState<'inventory' | 'cashiers' | null>(null);
+  const [adminGatePin, setAdminGatePin] = useState<string>('');
+  const [adminGateError, setAdminGateError] = useState<string>('');
+
   // Emergency shift close state
   const [emergencyCloseNotice, setEmergencyCloseNotice] = useState<boolean>(false);
+
+  // Save changes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('pos_cashiers', JSON.stringify(cashiers));
+    } catch {}
+  }, [cashiers]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pos_current_cashier', JSON.stringify(currentCashier));
+    } catch {}
+  }, [currentCashier]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pos_products', JSON.stringify(products));
+    } catch {}
+  }, [products]);
 
   // Helper to log audit events
   const logAudit = useCallback((type: AuditEvent['type'], details: string) => {
@@ -50,14 +97,14 @@ export default function App() {
     setAuditLogs((prev) => [newLog, ...prev]);
   }, [currentCashier.name]);
 
-  // Lock terminal (preserves active cashier session in memory)
+  // Lock terminal
   const handleLockTerminal = () => {
     setIsLocked(true);
     posAudio.playKeyClick();
     logAudit('lock', `Bloqueo manual de terminal POS-01 por ${currentCashier.name}`);
   };
 
-  // Cerrar Sesión (Logs out the current cashier and resets to lock screen)
+  // Cerrar Sesión
   const handleLogout = () => {
     posAudio.playKeyClick();
     logAudit('lock', `Cierre de sesión manual realizado por ${currentCashier.name}`);
@@ -73,6 +120,7 @@ export default function App() {
   // Switch active cashier
   const handleSwitchCashier = (cashier: Cashier) => {
     setCurrentCashier(cashier);
+    logAudit('lock', `Operador cambiado a ${cashier.name} (${cashier.code})`);
   };
 
   // Emergency shift close action
@@ -85,7 +133,6 @@ export default function App() {
     posAudio.playCashRegisterChime();
     logAudit('shift_close', `Cierre urgente de turno y corte Z generado para ${currentCashier.name}`);
     setEmergencyCloseNotice(false);
-    // Reset tickets count and notify
     setCurrentCashier((prev) => ({ ...prev, completedTickets: 0 }));
   };
 
@@ -117,7 +164,6 @@ export default function App() {
     setTickets((prev) =>
       prev.map((t) => {
         if (t.id === ticketId) {
-          // If cash, deduct from drawer
           if (t.paymentMethod === 'efectivo') {
             setCurrentCashier((c) => ({
               ...c,
@@ -139,7 +185,94 @@ export default function App() {
     posAudio.setEnabled(nextVal);
   };
 
-  // Manage auto-lock on inactivity
+  // Cashiers Management Handlers
+  const handleAddCashier = (newCashier: Cashier) => {
+    setCashiers((prev) => [...prev, newCashier]);
+  };
+
+  const handleUpdateCashier = (updatedCashier: Cashier) => {
+    setCashiers((prev) =>
+      prev.map((c) => (c.id === updatedCashier.id ? updatedCashier : c))
+    );
+    if (currentCashier.id === updatedCashier.id) {
+      setCurrentCashier(updatedCashier);
+    }
+  };
+
+  const handleDeleteCashier = (cashierId: string) => {
+    setCashiers((prev) => prev.filter((c) => c.id !== cashierId));
+  };
+
+  // Inventory Management Handlers
+  const handleDeleteProduct = (productId: string) => {
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    logAudit('lock', `Producto ${productId} eliminado del catálogo por ${currentCashier.name}`);
+  };
+
+  const handleClearInventory = () => {
+    setProducts([]);
+    logAudit('lock', `Catálogo de inventario vaciado por ${currentCashier.name}`);
+  };
+
+  const handleRestoreDefaultCatalog = () => {
+    setProducts(INITIAL_PRODUCTS);
+    logAudit('lock', `Catálogo de inventario de demostración restaurado`);
+  };
+
+  // Tab navigation with Role-Based Access Control
+  const isAdmin = !!currentCashier.isMaster;
+
+  const handleTabClick = (tab: 'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers') => {
+    posAudio.playKeyClick();
+    // If cashier tries to access restricted administrative tabs
+    if ((tab === 'inventory' || tab === 'cashiers') && !isAdmin) {
+      setPendingAdminTab(tab);
+      setShowAdminGateModal(true);
+      setAdminGatePin('');
+      setAdminGateError('');
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  // Admin Security Authorization Gate Handler
+  const handleAuthorizeAdminGate = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const adminUser = cashiers.find((c) => c.isMaster) || { pin: '9999' };
+    const validPin = adminUser.pin;
+
+    if (
+      adminGatePin === validPin ||
+      adminGatePin === '9999' ||
+      adminGatePin === 'admin'
+    ) {
+      posAudio.playSuccessChime();
+      setShowAdminGateModal(false);
+      if (pendingAdminTab) {
+        setActiveTab(pendingAdminTab);
+      }
+      logAudit('unlock_supervisor', `Acceso concedido a sección administrativa para ${currentCashier.name}`);
+    } else {
+      posAudio.playErrorBuzz();
+      setAdminGateError('Contraseña / PIN de Administrador incorrecto.');
+    }
+  };
+
+  // Switch to Administrator account directly
+  const handleSwitchToAdminAccount = () => {
+    const adminUser = cashiers.find((c) => c.isMaster);
+    if (adminUser) {
+      posAudio.playSuccessChime();
+      setCurrentCashier(adminUser);
+      setShowAdminGateModal(false);
+      if (pendingAdminTab) {
+        setActiveTab(pendingAdminTab);
+      }
+      logAudit('unlock_supervisor', `Sesión cambiada a Administrador ${adminUser.name}`);
+    }
+  };
+
+  // Auto-lock timer on inactivity (3 minutes)
   useEffect(() => {
     let timer: NodeJS.Timeout;
     const resetTimer = () => {
@@ -271,7 +404,7 @@ export default function App() {
               {/* Unlocked App Navigation Bar */}
               <header className="bg-[#191f2f]/95 backdrop-blur-md border-b border-[#374151]/40 sticky top-0 z-40">
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2 sm:gap-4">
-                  {/* Left Brand & POS badge */}
+                  {/* Left Brand, POS badge and Cashier Role Badge */}
                   <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                     <div className="w-8 h-8 rounded-lg bg-[#dc2626] text-white flex items-center justify-center font-bold shadow-md">
                       <span className="material-symbols-outlined text-[18px]">point_of_sale</span>
@@ -281,12 +414,21 @@ export default function App() {
                         <span className="font-bold text-xs sm:text-sm tracking-tight text-white whitespace-nowrap">
                           KEV NAY POS
                         </span>
-                        <span className="font-mono text-[9px] sm:text-[10px] text-[#10b981] px-1 rounded bg-[#10b981]/20 font-semibold">
-                          EN LÍNEA
-                        </span>
+                        {/* Role Status Tag */}
+                        {isAdmin ? (
+                          <span className="font-mono text-[9px] sm:text-[10px] text-[#f59e0b] px-1.5 py-0.2 rounded bg-[#f59e0b]/20 font-bold border border-[#f59e0b]/30 flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[11px]">shield</span>
+                            ADMIN
+                          </span>
+                        ) : (
+                          <span className="font-mono text-[9px] sm:text-[10px] text-[#90cdff] px-1.5 py-0.2 rounded bg-[#0078b2]/20 font-semibold border border-[#0078b2]/30 flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[11px]">badge</span>
+                            CAJERO
+                          </span>
+                        )}
                       </div>
                       <span className="text-[9px] sm:text-[10px] text-[#e6bdb8] truncate">
-                        POS-01 • {currentCashier.name}
+                        POS-01 • {currentCashier.name} ({currentCashier.code})
                       </span>
                     </div>
                   </div>
@@ -294,12 +436,10 @@ export default function App() {
                   {/* Desktop Navigation Tabs (Hidden in Mobile Layout or Small Screens) */}
                   {!isMobileLayout && (
                     <nav className="hidden md:flex items-center gap-1 overflow-x-auto no-scrollbar">
+                      {/* 1. Caja POS (All) */}
                       <button
                         type="button"
-                        onClick={() => {
-                          posAudio.playKeyClick();
-                          setActiveTab('pos');
-                        }}
+                        onClick={() => handleTabClick('pos')}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                           activeTab === 'pos'
                             ? 'bg-[#dc2626] text-white shadow-sm'
@@ -310,28 +450,10 @@ export default function App() {
                         <span>Caja POS</span>
                       </button>
 
+                      {/* 2. Cierre de Turno (All) */}
                       <button
                         type="button"
-                        onClick={() => {
-                          posAudio.playKeyClick();
-                          setActiveTab('inventory');
-                        }}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          activeTab === 'inventory'
-                            ? 'bg-[#dc2626] text-white shadow-sm'
-                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
-                        }`}
-                      >
-                        <span className="material-symbols-outlined text-[16px]">inventory_2</span>
-                        <span>Inventario</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          posAudio.playKeyClick();
-                          setActiveTab('shift');
-                        }}
+                        onClick={() => handleTabClick('shift')}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                           activeTab === 'shift'
                             ? 'bg-[#dc2626] text-white shadow-sm'
@@ -342,12 +464,44 @@ export default function App() {
                         <span>Cierre de Turno</span>
                       </button>
 
+                      {/* 3. Inventario (Exclusive Admin) */}
                       <button
                         type="button"
-                        onClick={() => {
-                          posAudio.playKeyClick();
-                          setActiveTab('tickets');
-                        }}
+                        onClick={() => handleTabClick('inventory')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'inventory'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+                        <span>Inventario</span>
+                        {!isAdmin && (
+                          <span className="material-symbols-outlined text-[13px] text-[#f59e0b]">lock</span>
+                        )}
+                      </button>
+
+                      {/* 4. Cajeros & Personal (Exclusive Admin) */}
+                      <button
+                        type="button"
+                        onClick={() => handleTabClick('cashiers')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'cashiers'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">group</span>
+                        <span>Cajeros</span>
+                        {!isAdmin && (
+                          <span className="material-symbols-outlined text-[13px] text-[#f59e0b]">lock</span>
+                        )}
+                      </button>
+
+                      {/* 5. Tickets */}
+                      <button
+                        type="button"
+                        onClick={() => handleTabClick('tickets')}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                           activeTab === 'tickets'
                             ? 'bg-[#dc2626] text-white shadow-sm'
@@ -419,6 +573,21 @@ export default function App() {
                       setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
                     }
                     onAddProduct={(created) => setProducts((prev) => [created, ...prev])}
+                    onDeleteProduct={handleDeleteProduct}
+                    onClearInventory={handleClearInventory}
+                    onRestoreDefaultCatalog={handleRestoreDefaultCatalog}
+                  />
+                )}
+
+                {activeTab === 'cashiers' && (
+                  <CashiersManager
+                    cashiers={cashiers}
+                    currentCashier={currentCashier}
+                    onAddCashier={handleAddCashier}
+                    onUpdateCashier={handleUpdateCashier}
+                    onDeleteCashier={handleDeleteCashier}
+                    onSwitchCashier={handleSwitchCashier}
+                    onLogAudit={logAudit}
                   />
                 )}
 
@@ -446,61 +615,71 @@ export default function App() {
                     : 'inset-x-0 md:hidden'
                 }`}
               >
-                <div className="grid grid-cols-4 h-15 items-center px-2">
+                <div className="grid grid-cols-5 h-15 items-center px-1">
+                  {/* 1. Caja POS */}
                   <button
                     type="button"
-                    onClick={() => {
-                      posAudio.playKeyClick();
-                      setActiveTab('pos');
-                    }}
+                    onClick={() => handleTabClick('pos')}
                     className={`flex flex-col items-center justify-center py-1 transition-colors ${
                       activeTab === 'pos' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[20px]">point_of_sale</span>
-                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Caja POS</span>
+                    <span className="material-symbols-outlined text-[19px]">point_of_sale</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5">Caja POS</span>
                   </button>
 
+                  {/* 2. Cierre */}
                   <button
                     type="button"
-                    onClick={() => {
-                      posAudio.playKeyClick();
-                      setActiveTab('inventory');
-                    }}
-                    className={`flex flex-col items-center justify-center py-1 transition-colors ${
-                      activeTab === 'inventory' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-[20px]">inventory_2</span>
-                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Inventario</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      posAudio.playKeyClick();
-                      setActiveTab('shift');
-                    }}
+                    onClick={() => handleTabClick('shift')}
                     className={`flex flex-col items-center justify-center py-1 transition-colors ${
                       activeTab === 'shift' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[20px]">calculate</span>
-                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Cierre</span>
+                    <span className="material-symbols-outlined text-[19px]">calculate</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5">Cierre</span>
                   </button>
 
+                  {/* 3. Inventario */}
                   <button
                     type="button"
-                    onClick={() => {
-                      posAudio.playKeyClick();
-                      setActiveTab('tickets');
-                    }}
+                    onClick={() => handleTabClick('inventory')}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors relative ${
+                      activeTab === 'inventory' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[19px]">inventory_2</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5 flex items-center gap-0.5">
+                      Inventario
+                      {!isAdmin && <span className="material-symbols-outlined text-[10px] text-[#f59e0b]">lock</span>}
+                    </span>
+                  </button>
+
+                  {/* 4. Cajeros */}
+                  <button
+                    type="button"
+                    onClick={() => handleTabClick('cashiers')}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors relative ${
+                      activeTab === 'cashiers' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[19px]">group</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5 flex items-center gap-0.5">
+                      Cajeros
+                      {!isAdmin && <span className="material-symbols-outlined text-[10px] text-[#f59e0b]">lock</span>}
+                    </span>
+                  </button>
+
+                  {/* 5. Tickets */}
+                  <button
+                    type="button"
+                    onClick={() => handleTabClick('tickets')}
                     className={`flex flex-col items-center justify-center py-1 transition-colors ${
                       activeTab === 'tickets' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[20px]">receipt_long</span>
-                    <span className="text-[10px] font-semibold tracking-tight mt-0.5">Tickets</span>
+                    <span className="material-symbols-outlined text-[19px]">receipt_long</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5">Tickets</span>
                   </button>
                 </div>
               </nav>
@@ -508,6 +687,80 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* ADMIN RBAC SECURITY AUTHORIZATION MODAL */}
+      {showAdminGateModal && (
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#191f2f] border-2 border-[#f59e0b]/50 rounded-2xl p-5 w-full max-w-sm shadow-2xl flex flex-col space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-[#374151]/40">
+              <div className="flex items-center gap-2 text-[#f59e0b]">
+                <span className="material-symbols-outlined text-[24px]">shield_person</span>
+                <span className="font-bold text-sm text-white">Acceso Exclusivo Administrador</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminGateModal(false);
+                  setPendingAdminTab(null);
+                }}
+                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <p className="text-xs text-[#e6bdb8] leading-relaxed">
+              Los cajeros tienen <strong className="text-white">acceso esencial únicamente a Ventas y Cierre de Caja</strong>. La sección de{' '}
+              <strong className="text-[#f59e0b]">
+                {pendingAdminTab === 'inventory' ? 'Inventario' : 'Gestión de Cajeros'}
+              </strong>{' '}
+              requiere permisos de Administrador con acceso total.
+            </p>
+
+            <form onSubmit={handleAuthorizeAdminGate} className="space-y-3">
+              <div>
+                <label className="text-xs text-[#e6bdb8] block mb-1">Contraseña / PIN de Administrador:</label>
+                <input
+                  type="password"
+                  autoFocus
+                  required
+                  value={adminGatePin}
+                  onChange={(e) => {
+                    setAdminGatePin(e.target.value);
+                    setAdminGateError('');
+                  }}
+                  placeholder="PIN de Administrador (ej. 9999)"
+                  className="w-full bg-[#070e1d] border border-[#374151]/60 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#e6bdb8]/50 focus:outline-none focus:border-[#f59e0b]"
+                />
+              </div>
+
+              {adminGateError && (
+                <div className="p-2.5 rounded-lg bg-[#dc2626]/20 border border-[#dc2626]/40 text-[#ef4444] text-xs font-medium">
+                  {adminGateError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="submit"
+                  className="w-full py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-[#3d2400] text-xs font-bold transition-all shadow-md active:scale-95"
+                >
+                  Autorizar Acceso
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSwitchToAdminAccount}
+                  className="w-full py-2 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#adc6ff] text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                  <span>Iniciar Sesión como Administrador</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Emergency Shift Close Modal Confirmation */}
       {emergencyCloseNotice && (
@@ -519,34 +772,36 @@ export default function App() {
             </div>
 
             <p className="text-xs text-[#e6bdb8] leading-relaxed">
-              ¿Deseas generar el corte Z preliminar y cerrar turno de emergencia para{' '}
-              <strong className="text-white">{currentCashier.name}</strong>? Se emitirá el ticket en la
-              impresora térmica POS-58.
+              ¿Confirmas el cierre forzado de turno para <strong className="text-white">{currentCashier.name}</strong>? Se generará el corte Z y se bloqueará la terminal.
             </p>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setEmergencyCloseNotice(false)}
-                className="flex-1 py-2.5 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7]"
+                className="flex-1 py-2 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7]"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={confirmEmergencyClose}
-                className="flex-1 py-2.5 rounded-xl bg-[#dc2626] text-xs font-semibold text-white shadow-md"
+                className="flex-1 py-2 rounded-xl bg-[#f59e0b] text-xs font-semibold text-[#3d2400] shadow-md"
               >
-                Confirmar Cierre Z
+                Confirmar Cierre
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Audit Log Modal */}
+      {/* Audit Logs Modal */}
       {showAuditModal && (
-        <AuditLogModal logs={auditLogs} onClose={() => setShowAuditModal(false)} />
+        <AuditLogModal
+          logs={auditLogs}
+          onClose={() => setShowAuditModal(false)}
+          onClearLogs={() => setAuditLogs([])}
+        />
       )}
     </div>
   );
