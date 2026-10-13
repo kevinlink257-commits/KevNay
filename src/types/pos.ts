@@ -38,6 +38,7 @@ export interface SaleTicket {
   id: string;
   ticketNumber: string; // e.g. '#T-1025'
   timestamp: string;
+  date?: string; // ISO date 'YYYY-MM-DD' for date-based analytics
   cashierId: string;
   cashierName: string;
   customerName?: string;

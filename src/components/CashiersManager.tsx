@@ -12,6 +12,7 @@ interface CashiersManagerProps {
   onSwitchCashier: (cashier: Cashier) => void;
   onLogAudit: (type: AuditEvent['type'], details: string) => void;
   onOpenBackupModal?: () => void;
+  onOpenAnalytics?: () => void;
 }
 
 export const CashiersManager: React.FC<CashiersManagerProps> = ({
@@ -23,6 +24,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   onSwitchCashier,
   onLogAudit,
   onOpenBackupModal,
+  onOpenAnalytics,
 }) => {
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
@@ -272,7 +274,22 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {onOpenAnalytics && (
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                onOpenAnalytics();
+              }}
+              title="Ver Métricas y Gráficas de Ventas Semanales"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#10b981]/20 hover:bg-[#10b981] text-[#10b981] hover:text-black border border-[#10b981]/40 text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">monitoring</span>
+              <span>Ver Métricas</span>
+            </button>
+          )}
+
           {onOpenBackupModal && (
             <button
               type="button"
@@ -364,6 +381,20 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenAnalytics && (
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  onOpenAnalytics();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#10b981] border border-[#10b981]/40 text-xs font-bold transition-all shadow-md active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[17px]">monitoring</span>
+                <span>Ver Métricas Semanales</span>
+              </button>
+            )}
+
             {onOpenBackupModal && (
               <button
                 type="button"

@@ -152,6 +152,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
       id: ticketId,
       ticketNumber,
       timestamp,
+      date: now.toISOString().split('T')[0],
       cashierId: cashier.id,
       cashierName: cashier.name,
       customerName,

@@ -15,6 +15,7 @@ import { TicketsHistory } from './components/TicketsHistory';
 import { CashiersManager } from './components/CashiersManager';
 import { AuditLogModal } from './components/AuditLogModal';
 import { BackupManagerModal } from './components/BackupManagerModal';
+import { AdminAnalyticsDashboard } from './components/AdminAnalyticsDashboard';
 import { exportAndDownloadBackup } from './utils/backup';
 
 export default function App() {
@@ -44,11 +45,17 @@ export default function App() {
   });
 
   const [isLocked, setIsLocked] = useState<boolean>(true); // Starts locked to match reference design
-  const [tickets, setTickets] = useState<SaleTicket[]>(INITIAL_TICKETS);
+  const [tickets, setTickets] = useState<SaleTicket[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_tickets');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_TICKETS;
+  });
   const [auditLogs, setAuditLogs] = useState<AuditEvent[]>(INITIAL_AUDIT_LOGS);
 
-  // Active view inside POS
-  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers'>('pos');
+  // Active view inside POS (includes new analytics tab)
+  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers' | 'analytics'>('pos');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
   const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
@@ -56,7 +63,7 @@ export default function App() {
 
   // RBAC Access Control Gate State for Non-Admin Cashiers
   const [showAdminGateModal, setShowAdminGateModal] = useState<boolean>(false);
-  const [pendingAdminTab, setPendingAdminTab] = useState<'inventory' | 'cashiers' | null>(null);
+  const [pendingAdminTab, setPendingAdminTab] = useState<'inventory' | 'cashiers' | 'analytics' | null>(null);
   const [adminGatePin, setAdminGatePin] = useState<string>('');
   const [adminGateError, setAdminGateError] = useState<string>('');
 
@@ -81,6 +88,12 @@ export default function App() {
       localStorage.setItem('pos_products', JSON.stringify(products));
     } catch {}
   }, [products]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pos_tickets', JSON.stringify(tickets));
+    } catch {}
+  }, [tickets]);
 
   // Helper to log audit events
   const logAudit = useCallback((type: AuditEvent['type'], details: string) => {
@@ -259,10 +272,10 @@ export default function App() {
   // Tab navigation with Role-Based Access Control
   const isAdmin = !!currentCashier.isMaster;
 
-  const handleTabClick = (tab: 'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers') => {
+  const handleTabClick = (tab: 'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers' | 'analytics') => {
     posAudio.playKeyClick();
     // If cashier tries to access restricted administrative tabs
-    if ((tab === 'inventory' || tab === 'cashiers') && !isAdmin) {
+    if ((tab === 'inventory' || tab === 'cashiers' || tab === 'analytics') && !isAdmin) {
       setPendingAdminTab(tab);
       setShowAdminGateModal(true);
       setAdminGatePin('');
@@ -270,6 +283,49 @@ export default function App() {
       return;
     }
     setActiveTab(tab);
+  };
+
+  // Quick simulated sale handler to test live analytics metric updates
+  const handleSimulateSale = () => {
+    if (products.length === 0) return;
+    const randomProduct = products[Math.floor(Math.random() * products.length)];
+    const qty = Math.floor(Math.random() * 3) + 1;
+    const rawSubtotal = randomProduct.price * qty;
+    const taxTotal = Math.round((rawSubtotal * randomProduct.taxRate) / (1 + randomProduct.taxRate));
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+
+    const paymentMethods: ('efectivo' | 'tarjeta' | 'qr_transfer')[] = ['efectivo', 'tarjeta', 'qr_transfer'];
+    const selectedMethod = paymentMethods[Math.floor(Math.random() * paymentMethods.length)];
+
+    const simulatedTicket: SaleTicket = {
+      id: `t-${Date.now().toString().slice(-4)}`,
+      ticketNumber: `#T-${Math.floor(1000 + Math.random() * 9000)}`,
+      timestamp: `Hoy, ${hours}:${minutes}:${seconds} COT`,
+      date: now.toISOString().split('T')[0],
+      cashierId: currentCashier.id,
+      cashierName: currentCashier.name,
+      customerName: 'Venta de Prueba (Simulador)',
+      items: [{ product: randomProduct, quantity: qty, discountPercent: 0 }],
+      subtotal: rawSubtotal - taxTotal,
+      taxTotal,
+      discountTotal: 0,
+      total: rawSubtotal,
+      paymentMethod: selectedMethod,
+      amountPaid: rawSubtotal,
+      changeReturned: 0,
+      status: 'completada',
+    };
+
+    handleCompleteSale(simulatedTicket, {
+      ...currentCashier,
+      drawerCash: selectedMethod === 'efectivo' ? currentCashier.drawerCash + rawSubtotal : currentCashier.drawerCash,
+      completedTickets: currentCashier.completedTickets + 1,
+    });
+    posAudio.playCashRegisterChime();
+    logAudit('sale_completed', `Venta de prueba ${simulatedTicket.ticketNumber} generada en analítica`);
   };
 
   // Admin Security Authorization Gate Handler
@@ -535,7 +591,24 @@ export default function App() {
                         )}
                       </button>
 
-                      {/* 5. Tickets */}
+                      {/* 5. Métricas & Analítica (Exclusive Admin) */}
+                      <button
+                        type="button"
+                        onClick={() => handleTabClick('analytics')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          activeTab === 'analytics'
+                            ? 'bg-[#dc2626] text-white shadow-sm'
+                            : 'text-[#e6bdb8] hover:bg-[#232a3a] hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">monitoring</span>
+                        <span>Métricas</span>
+                        {!isAdmin && (
+                          <span className="material-symbols-outlined text-[13px] text-[#f59e0b]">lock</span>
+                        )}
+                      </button>
+
+                      {/* 6. Tickets */}
                       <button
                         type="button"
                         onClick={() => handleTabClick('tickets')}
@@ -643,6 +716,18 @@ export default function App() {
                     onSwitchCashier={handleSwitchCashier}
                     onLogAudit={logAudit}
                     onOpenBackupModal={() => setShowBackupModal(true)}
+                    onOpenAnalytics={() => setActiveTab('analytics')}
+                  />
+                )}
+
+                {activeTab === 'analytics' && (
+                  <AdminAnalyticsDashboard
+                    tickets={tickets}
+                    products={products}
+                    currentCashier={currentCashier}
+                    onOpenPos={() => setActiveTab('pos')}
+                    onOpenInventory={() => handleTabClick('inventory')}
+                    onSimulateSale={handleSimulateSale}
                   />
                 )}
 
@@ -670,7 +755,7 @@ export default function App() {
                     : 'inset-x-0 md:hidden'
                 }`}
               >
-                <div className="grid grid-cols-5 h-15 items-center px-1">
+                <div className="grid grid-cols-6 h-15 items-center px-1">
                   {/* 1. Caja POS */}
                   <button
                     type="button"
@@ -725,7 +810,22 @@ export default function App() {
                     </span>
                   </button>
 
-                  {/* 5. Tickets */}
+                  {/* 5. Métricas */}
+                  <button
+                    type="button"
+                    onClick={() => handleTabClick('analytics')}
+                    className={`flex flex-col items-center justify-center py-1 transition-colors relative ${
+                      activeTab === 'analytics' ? 'text-[#ef4444]' : 'text-[#e6bdb8] hover:text-white'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[19px]">monitoring</span>
+                    <span className="text-[9px] font-semibold tracking-tight mt-0.5 flex items-center gap-0.5">
+                      Métricas
+                      {!isAdmin && <span className="material-symbols-outlined text-[10px] text-[#f59e0b]">lock</span>}
+                    </span>
+                  </button>
+
+                  {/* 6. Tickets */}
                   <button
                     type="button"
                     onClick={() => handleTabClick('tickets')}
@@ -767,7 +867,11 @@ export default function App() {
             <p className="text-xs text-[#e6bdb8] leading-relaxed">
               Los cajeros tienen <strong className="text-white">acceso esencial únicamente a Ventas y Cierre de Caja</strong>. La sección de{' '}
               <strong className="text-[#f59e0b]">
-                {pendingAdminTab === 'inventory' ? 'Inventario' : 'Gestión de Cajeros'}
+                {pendingAdminTab === 'inventory'
+                  ? 'Inventario'
+                  : pendingAdminTab === 'cashiers'
+                  ? 'Gestión de Cajeros'
+                  : 'Métricas & Analítica'}
               </strong>{' '}
               requiere permisos de Administrador con acceso total.
             </p>
