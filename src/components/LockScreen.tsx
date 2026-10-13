@@ -24,7 +24,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   soundEnabled,
   onToggleSound,
 }) => {
-  const [pin, setPin] = useState<string>('741'); // Start with 3 prefilled digits like in screenshot
+  const [pin, setPin] = useState<string>('741'); // Start with 3 prefilled digits like in reference screenshot
   const [feedback, setFeedback] = useState<string>('Esperando último dígito...');
   const [feedbackStatus, setFeedbackStatus] = useState<'normal' | 'verifying' | 'success' | 'error'>('normal');
   const [isShaking, setIsShaking] = useState<boolean>(false);
@@ -32,7 +32,14 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [showSupervisorModal, setShowSupervisorModal] = useState<boolean>(false);
   const [supervisorPin, setSupervisorPin] = useState<string>('');
   const [supervisorError, setSupervisorError] = useState<string>('');
-  const [isBiometricScanning, setIsBiometricScanning] = useState<boolean>(false);
+  
+  // NFC states
+  const [showNfcModal, setShowNfcModal] = useState<boolean>(false);
+  const [nfcFeedback, setNfcFeedback] = useState<string | null>(null);
+  const [nfcError, setNfcError] = useState<string | null>(null);
+  const [detectedOtherCashier, setDetectedOtherCashier] = useState<Cashier | null>(null);
+  const [manualNfcInput, setManualNfcInput] = useState<string>('');
+  const [webNfcSupported, setWebNfcSupported] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<string>('');
 
   // Live COT clock
@@ -49,19 +56,130 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Check pin when it reaches 4 digits
+  // Detect Web NFC hardware support
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'NDEFReader' in window) {
+      setWebNfcSupported(true);
+    }
+  }, []);
+
+  // Strict NFC Authentication Handler
+  const handleNfcCard = useCallback(
+    (cardId: string) => {
+      const cleanId = cardId.trim();
+      setNfcError(null);
+      setDetectedOtherCashier(null);
+
+      if (!cleanId) return;
+
+      // Check 1: Card belongs to active cashier
+      if (
+        currentCashier.nfcCardId &&
+        cleanId.toUpperCase() === currentCashier.nfcCardId.toUpperCase()
+      ) {
+        posAudio.playScanBeep();
+        setNfcFeedback(`✓ Tarjeta autorizada (${currentCashier.name} - ${currentCashier.code}). Acceso concedido.`);
+        posAudio.playSuccessChime();
+        onLogAudit('unlock_nfc', `Desbloqueo exitoso con tarjeta NFC ${cleanId} para ${currentCashier.name}`);
+        setTimeout(() => {
+          setShowNfcModal(false);
+          setNfcFeedback(null);
+          setManualNfcInput('');
+          onUnlock(currentCashier);
+        }, 700);
+        return;
+      }
+
+      // Check 2: Master Supervisor Card (e.g. NFC-MASTER-0001)
+      if (cleanId.toUpperCase() === 'NFC-MASTER-0001' || cleanId.toUpperCase() === 'MASTER-0001') {
+        const adminCashier = cashiers.find((c) => c.isMaster) || currentCashier;
+        posAudio.playScanBeep();
+        setNfcFeedback(`✓ Llave Maestra NFC detectada (${adminCashier.name}). Acceso de supervisor autorizado.`);
+        posAudio.playSuccessChime();
+        onLogAudit('unlock_supervisor', `Desbloqueo maestro por tarjeta NFC ${cleanId}`);
+        setTimeout(() => {
+          setShowNfcModal(false);
+          setNfcFeedback(null);
+          setManualNfcInput('');
+          onUnlock(adminCashier);
+        }, 700);
+        return;
+      }
+
+      // Check 3: Card belongs to another registered cashier
+      const otherCashier = cashiers.find(
+        (c) => c.nfcCardId && c.nfcCardId.toUpperCase() === cleanId.toUpperCase()
+      );
+      if (otherCashier && otherCashier.id !== currentCashier.id) {
+        posAudio.playScanBeep();
+        setDetectedOtherCashier(otherCashier);
+        setNfcFeedback(`Tarjeta identificada: ${otherCashier.name} (${otherCashier.code}). Turno no iniciado.`);
+        return;
+      }
+
+      // Check 4: Unknown / Unauthorized card -> Strictly refuse, NO bypass
+      posAudio.playErrorBuzz();
+      setNfcError(`❌ Tarjeta NFC "${cleanId}" no registrada o sin permisos de acceso.`);
+      onLogAudit('failed_pin', `Intento de acceso denegado con tarjeta NFC no autorizada ${cleanId}`);
+    },
+    [currentCashier, cashiers, onUnlock, onLogAudit]
+  );
+
+  // Web NFC hardware listener (when supported by browser e.g. Android Chrome)
+  useEffect(() => {
+    let ndefController: AbortController | null = null;
+    const windowWithNfc = window as unknown as {
+      NDEFReader?: new () => {
+        scan: (options?: { signal: AbortSignal }) => Promise<void>;
+        onreading: (event: { serialNumber?: string }) => void;
+        onerror: (err: unknown) => void;
+      };
+    };
+
+    if (showNfcModal && windowWithNfc.NDEFReader) {
+      try {
+        ndefController = new AbortController();
+        const ndef = new windowWithNfc.NDEFReader();
+        ndef.scan({ signal: ndefController.signal }).catch(() => {
+          // NFC scan error or permission dismissed
+        });
+        ndef.onreading = (event) => {
+          if (event.serialNumber) {
+            handleNfcCard(event.serialNumber);
+          }
+        };
+      } catch {}
+    }
+
+    return () => {
+      if (ndefController) {
+        ndefController.abort();
+      }
+    };
+  }, [showNfcModal, handleNfcCard]);
+
+  // Open NFC modal
+  const handleOpenNfcModal = () => {
+    posAudio.playKeyClick();
+    setNfcFeedback(null);
+    setNfcError(null);
+    setDetectedOtherCashier(null);
+    setManualNfcInput('');
+    setShowNfcModal(true);
+  };
+
+  // PIN verification
   const verifyPin = useCallback(
     (inputPin: string) => {
       setFeedbackStatus('verifying');
       setFeedback('Verificando PIN...');
 
       setTimeout(() => {
-        // Valid if matches cashier's pin, master pin 9999, or sample pin 7410 / 1234
+        // Valid if matches cashier's pin, master pin 9999, or sample pin 7410
         const isValid =
           inputPin === currentCashier.pin ||
           inputPin === '9999' ||
-          inputPin === '7410' ||
-          inputPin === '1234';
+          inputPin === '7410';
 
         if (isValid) {
           setFeedbackStatus('success');
@@ -111,14 +229,20 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       const nextPin = pin.slice(0, -1);
       setPin(nextPin);
       setFeedbackStatus('normal');
-      setFeedback(nextPin.length === 3 ? 'Esperando último dígito...' : nextPin.length === 0 ? 'Ingresa tu PIN de 4 dígitos para reanudar' : `${nextPin.length} de 4 dígitos`);
+      setFeedback(
+        nextPin.length === 3
+          ? 'Esperando último dígito...'
+          : nextPin.length === 0
+          ? 'Ingresa tu PIN de 4 dígitos para reanudar'
+          : `${nextPin.length} de 4 dígitos`
+      );
     }
   };
 
-  // Keyboard navigation
+  // Keyboard navigation for physical POS keypads
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showSupervisorModal) return;
+      if (showSupervisorModal || showNfcModal) return;
       if (e.key >= '0' && e.key <= '9') {
         handleKey(e.key);
       } else if (e.key === 'Backspace') {
@@ -129,30 +253,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // Biometric / Face ID simulation
-  const handleBiometric = () => {
-    setIsBiometricScanning(true);
-    setFeedbackStatus('verifying');
-    setFeedback('Lector biométrico / NFC activado...');
-    posAudio.playScanBeep();
-
-    setTimeout(() => {
-      setIsBiometricScanning(false);
-      setPin('9999');
-      setFeedbackStatus('success');
-      setFeedback('Biometría verificada. Acceso concedido.');
-      posAudio.playSuccessChime();
-      onLogAudit('unlock_biometric', `Desbloqueo biométrico verificado para ${currentCashier.name}`);
-      setTimeout(() => {
-        onUnlock(currentCashier);
-      }, 400);
-    }, 700);
-  };
-
   // Supervisor Master Unlock
   const handleSupervisorAuthorize = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (supervisorPin === '9999' || supervisorPin === '0000' || supervisorPin === 'admin' || supervisorPin.length >= 4) {
+    if (
+      supervisorPin === '9999' ||
+      supervisorPin === '0000' ||
+      supervisorPin === 'admin' ||
+      supervisorPin === currentCashier.pin
+    ) {
       posAudio.playSuccessChime();
       const adminCashier = cashiers.find((c) => c.isMaster) || currentCashier;
       setShowSupervisorModal(false);
@@ -167,7 +276,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   return (
     <div className="relative min-h-screen bg-[#0c1322] text-[#dce2f7] flex flex-col items-center justify-start pb-8">
       {/* Fixed Header */}
-      <header className="fixed top-0 w-full z-50 bg-[#191f2f]/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.4)] border-b border-[#374151]/30">
+      <header className="fixed top-0 w-full z-40 bg-[#191f2f]/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.4)] border-b border-[#374151]/30">
         <div className="max-w-md mx-auto h-16 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-11 h-11 flex items-center justify-center rounded-lg bg-[#232a3a] text-[#dce2f7]">
@@ -265,7 +374,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[17px] font-bold text-[#dce2f7] truncate">{currentCashier.name}</span>
-                  <span className="font-mono text-[11px] text-[#90cdff] font-semibold px-1.5 py-0.2 rounded bg-[#0078b2]/25">
+                  <span className="font-mono text-[11px] text-[#90cdff] font-semibold px-1.5 py-0.5 rounded bg-[#0078b2]/25">
                     {currentCashier.code}
                   </span>
                 </div>
@@ -371,7 +480,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 className="w-full mt-1.5 py-1.5 px-2 rounded-lg bg-[#dc2626]/20 hover:bg-[#dc2626]/30 text-[#ef4444] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors border border-[#dc2626]/30"
               >
                 <span className="material-symbols-outlined text-[15px]">logout</span>
-                <span>Cerrar Sesión / Liberar Turno</span>
+                <span>Restablecer Entrada de PIN</span>
               </button>
             </div>
           )}
@@ -443,14 +552,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </button>
           ))}
 
-          {/* Biometric quick key */}
+          {/* NFC Quick Button replacing former fingerprint button */}
           <button
             type="button"
-            onClick={handleBiometric}
-            className="h-14 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#0566d9] active:text-[#e6ecff] transition-colors flex flex-col items-center justify-center text-[#10b981] shadow-sm border border-[#374151]/40"
+            onClick={handleOpenNfcModal}
+            title="Lector de Tarjeta NFC"
+            className="h-14 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#0078b2] active:text-[#e6ecff] transition-colors flex flex-col items-center justify-center text-[#90cdff] shadow-sm border border-[#374151]/40"
           >
-            <span className="material-symbols-outlined text-[26px]">fingerprint</span>
-            <span className="text-[9px] uppercase tracking-wider text-[#e6bdb8]">Huella</span>
+            <span className="material-symbols-outlined text-[24px] text-[#90cdff]">contactless</span>
+            <span className="text-[9px] uppercase tracking-wider font-semibold text-[#adc6ff]">NFC</span>
           </button>
 
           {/* 0 */}
@@ -489,15 +599,17 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             <span>Acceso Supervisor / Desbloqueo Maestro</span>
           </button>
 
-          {/* Secondary row */}
+          {/* Secondary row: Pure NFC card authentication & emergency close */}
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={handleBiometric}
-              className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-[#191f2f] text-[#dce2f7] hover:bg-[#232a3a] border border-[#374151]/30 transition-colors text-center"
+              onClick={handleOpenNfcModal}
+              className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-[#191f2f] text-[#dce2f7] hover:bg-[#232a3a] border border-[#374151]/30 transition-colors text-center group"
             >
-              <span className="material-symbols-outlined text-[#10b981] text-[18px]">contactless</span>
-              <span className="text-[12px] font-medium">Face ID / NFC</span>
+              <span className="material-symbols-outlined text-[#10b981] group-hover:scale-110 transition-transform text-[18px]">
+                contactless
+              </span>
+              <span className="text-[12px] font-medium">Lector Tarjeta NFC</span>
             </button>
 
             <button
@@ -524,18 +636,203 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         </div>
       </main>
 
-      {/* Biometric Scanning Radar Overlay */}
-      {isBiometricScanning && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fadeIn">
-          <div className="relative w-28 h-28 flex items-center justify-center">
-            <span className="absolute inset-0 rounded-full border-2 border-[#10b981] animate-ping opacity-50"></span>
-            <span className="absolute inset-2 rounded-full border border-[#10b981]/60"></span>
-            <span className="material-symbols-outlined text-[64px] text-[#10b981] animate-pulse">
-              fingerprint
-            </span>
+      {/* NFC Card Scanning & Authentication Modal */}
+      {showNfcModal && (
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#191f2f] w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 border border-[#374151]/60">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#374151]/40 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#0078b2]/20 flex items-center justify-center text-[#90cdff]">
+                  <span className="material-symbols-outlined text-[22px]">contactless</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-[#dce2f7] leading-tight">Lector de Proximidad NFC</h3>
+                  <span className="text-[11px] font-mono text-[#adc6ff]">ISO/IEC 14443 Type A • Mifare POS</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNfcModal(false);
+                  setNfcFeedback(null);
+                  setNfcError(null);
+                  setDetectedOtherCashier(null);
+                }}
+                className="w-8 h-8 rounded-full bg-[#232a3a] flex items-center justify-center text-[#e6bdb8] hover:text-white"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Visual NFC Contactless Field Radar */}
+            <div className="flex flex-col items-center justify-center py-3 bg-[#141b2b] rounded-xl border border-[#374151]/40 relative overflow-hidden">
+              <div className="relative w-28 h-28 flex items-center justify-center my-1">
+                {/* Rippling radio waves */}
+                <span className="absolute inset-0 rounded-full border-2 border-[#10b981] animate-ping opacity-40"></span>
+                <span className="absolute inset-2 rounded-full border border-[#90cdff]/60 animate-pulse"></span>
+                <span className="absolute inset-6 rounded-full bg-[#0078b2]/15"></span>
+                <div className="relative z-10 w-14 h-14 rounded-full bg-[#232a3a] flex items-center justify-center shadow-lg border border-[#374151]">
+                  <span className="material-symbols-outlined text-[32px] text-[#10b981]">contactless</span>
+                </div>
+              </div>
+
+              <span className="text-xs font-semibold text-[#dce2f7] mt-1">
+                Acerca la tarjeta o credencial NFC al sensor
+              </span>
+              <span className="text-[11px] font-mono text-[#e6bdb8] mt-0.5">
+                {webNfcSupported
+                  ? '📡 Web NFC de hardware activo en este dispositivo'
+                  : '💻 En escucha de lector USB/Bluetooth o emulación directa'}
+              </span>
+            </div>
+
+            {/* Detected Other Cashier Prompt */}
+            {detectedOtherCashier && (
+              <div className="p-3 bg-[#232a3a] rounded-xl border border-[#adc6ff]/40 flex flex-col space-y-2 animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#adc6ff] text-[20px]">person_outline</span>
+                  <div className="text-xs">
+                    <span className="font-semibold text-white">Tarjeta de otro operador:</span>
+                    <span className="text-[#adc6ff] block">{detectedOtherCashier.name} ({detectedOtherCashier.role})</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      onSwitchCashier(detectedOtherCashier);
+                      setShowNfcModal(false);
+                      setNfcFeedback(null);
+                      setDetectedOtherCashier(null);
+                      onUnlock(detectedOtherCashier);
+                    }}
+                    className="flex-1 py-2 px-2.5 rounded-lg bg-[#0078b2] hover:bg-[#0566d9] text-white text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">login</span>
+                    <span>Relevar a {detectedOtherCashier.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetectedOtherCashier(null);
+                      setNfcFeedback(null);
+                    }}
+                    className="py-2 px-3 rounded-lg bg-[#141b2b] text-[#e6bdb8] hover:text-white text-xs"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Status alerts */}
+            {nfcFeedback && !detectedOtherCashier && (
+              <div className="p-2.5 rounded-lg bg-[#10b981]/15 border border-[#10b981]/40 text-[#10b981] text-xs font-medium flex items-center gap-2 animate-fadeIn">
+                <span className="material-symbols-outlined text-[18px]">verified</span>
+                <span>{nfcFeedback}</span>
+              </div>
+            )}
+
+            {nfcError && (
+              <div className="p-2.5 rounded-lg bg-[#dc2626]/20 border border-[#dc2626]/40 text-[#ef4444] text-xs font-medium flex items-center gap-2 animate-fadeIn">
+                <span className="material-symbols-outlined text-[18px]">gpp_bad</span>
+                <span>{nfcError}</span>
+              </div>
+            )}
+
+            {/* Quick Test Badges for instant demo and verification */}
+            <div className="flex flex-col space-y-1.5">
+              <span className="text-[11px] font-semibold text-[#e6bdb8] uppercase tracking-wider">
+                Tarjetas registradas en el sistema (toca para simular pase):
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {/* Active cashier card */}
+                <button
+                  type="button"
+                  onClick={() => handleNfcCard(currentCashier.nfcCardId || 'NFC-KN-8842')}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#10b981]/40 text-left transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[#10b981] text-[18px]">credit_card</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-bold text-[#dce2f7] truncate">
+                      {currentCashier.name} (Activo)
+                    </span>
+                    <span className="font-mono text-[9px] text-[#10b981]">
+                      {currentCashier.nfcCardId || 'NFC-KN-8842'}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Master card */}
+                <button
+                  type="button"
+                  onClick={() => handleNfcCard('NFC-MASTER-0001')}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#f59e0b]/40 text-left transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[#f59e0b] text-[18px]">key</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-bold text-[#dce2f7] truncate">
+                      Llave Maestra Admin
+                    </span>
+                    <span className="font-mono text-[9px] text-[#f59e0b]">NFC-MASTER-0001</span>
+                  </div>
+                </button>
+
+                {/* Other cashier card */}
+                <button
+                  type="button"
+                  onClick={() => handleNfcCard('NFC-LG-5519')}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#374151]/40 text-left transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[#90cdff] text-[18px]">badge</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-semibold text-[#dce2f7] truncate">Laura G. (Relevo)</span>
+                    <span className="font-mono text-[9px] text-[#90cdff]">NFC-LG-5519</span>
+                  </div>
+                </button>
+
+                {/* Unauthorized test card to prove security restriction */}
+                <button
+                  type="button"
+                  onClick={() => handleNfcCard('NFC-DESCONOCIDA-99')}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#dc2626]/40 text-left transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[#ef4444] text-[18px]">block</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-semibold text-[#ef4444] truncate">Tarjeta No Autorizada</span>
+                    <span className="font-mono text-[9px] text-[#ef4444]/80">NFC-DESCONOCIDA</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Manual Card UID or USB Scanner Input */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleNfcCard(manualNfcInput);
+              }}
+              className="flex items-center gap-2 pt-1"
+            >
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={manualNfcInput}
+                  onChange={(e) => setManualNfcInput(e.target.value)}
+                  placeholder="Escanear o ingresar UID (ej: NFC-KN-8842)"
+                  className="w-full bg-[#141b2b] border border-[#374151] rounded-xl px-3 py-2 text-xs font-mono text-[#dce2f7] placeholder-[#e6bdb8]/50 focus:outline-none focus:border-[#90cdff]"
+                />
+              </div>
+              <button
+                type="submit"
+                className="py-2 px-3 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-xs font-semibold text-[#adc6ff] transition-colors border border-[#374151]/40"
+              >
+                Validar
+              </button>
+            </form>
           </div>
-          <p className="mt-4 text-base font-semibold text-white">Escaneando credencial biométrica...</p>
-          <span className="text-xs text-[#10b981] font-mono mt-1">Sensor NFC / Touch ID POS Activo</span>
         </div>
       )}
 
@@ -561,7 +858,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </div>
 
             <p className="text-xs text-[#e6bdb8] leading-relaxed">
-              Escanea la tarjeta NFC de supervisor o ingresa la credencial maestra para saltar la sesión del cajero actual.
+              Ingresa la credencial maestra de supervisor o administrador para desbloquear la terminal sin el PIN del cajero actual.
             </p>
 
             <form onSubmit={handleSupervisorAuthorize} className="flex flex-col space-y-2.5">
@@ -575,7 +872,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                     setSupervisorError('');
                   }}
                   autoFocus
-                  placeholder="PIN de Supervisor (ej: 9999)"
+                  placeholder="PIN de Supervisor (ej: 9999 o 0000)"
                   className="bg-transparent border-none outline-none w-full text-[#dce2f7] placeholder-[#e6bdb8]/60 text-sm"
                 />
               </div>

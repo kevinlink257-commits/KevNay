@@ -9,6 +9,7 @@ export interface Cashier {
   isMaster?: boolean;
   drawerCash: number;
   completedTickets: number;
+  nfcCardId?: string;
 }
 
 export interface Product {
@@ -68,7 +69,7 @@ export interface CashCountDenominations {
 export interface AuditEvent {
   id: string;
   timestamp: string;
-  type: 'lock' | 'unlock_pin' | 'unlock_biometric' | 'unlock_supervisor' | 'failed_pin' | 'sale_completed' | 'shift_close';
+  type: 'lock' | 'unlock_pin' | 'unlock_nfc' | 'unlock_biometric' | 'unlock_supervisor' | 'failed_pin' | 'sale_completed' | 'shift_close';
   cashierName: string;
   details: string;
 }

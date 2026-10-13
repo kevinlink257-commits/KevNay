@@ -11,6 +11,7 @@ export const INITIAL_CASHIERS: Cashier[] = [
     avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA6UIn7TcRoWzon6UA9H5jX7B3Ah13xdrJVFtOzNul4jL9xf_Bhg_k959TdVToRctgh-OlrU3U5K3AisE9fF7DlRK5cmdGCG5WMIvX_ZXmHe3RUA_Eb0jJiF2DC2Xl8DDluVH5TzrJWASBSBXK61cQt5vfVgPKOGQWhiZVjeaQ-5EeU7vBkXskaj0pecY5QaPmCx99nn2jPX6lsSm66gm16qJU4YBsqJ3CfJAsSE-yLL1H31OOixI-r',
     drawerCash: 910000,
     completedTickets: 24,
+    nfcCardId: 'NFC-KN-8842',
   },
   {
     id: 'c2',
@@ -22,6 +23,7 @@ export const INITIAL_CASHIERS: Cashier[] = [
     avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
     drawerCash: 620000,
     completedTickets: 16,
+    nfcCardId: 'NFC-LG-5519',
   },
   {
     id: 'c3',
@@ -34,6 +36,7 @@ export const INITIAL_CASHIERS: Cashier[] = [
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
     drawerCash: 1250000,
     completedTickets: 38,
+    nfcCardId: 'NFC-MASTER-0001',
   },
   {
     id: 'c4',
@@ -45,6 +48,7 @@ export const INITIAL_CASHIERS: Cashier[] = [
     avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
     drawerCash: 450000,
     completedTickets: 9,
+    nfcCardId: 'NFC-VR-3390',
   },
 ];
 
