@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Cashier, Product, SaleTicket, AuditEvent } from './types/pos';
+import { Cashier, Product, SaleTicket, AuditEvent, OperatingHoursConfig } from './types/pos';
 import {
   INITIAL_CASHIERS,
   INITIAL_PRODUCTS,
@@ -16,12 +16,25 @@ import { CashiersManager } from './components/CashiersManager';
 import { AuditLogModal } from './components/AuditLogModal';
 import { BackupManagerModal } from './components/BackupManagerModal';
 import { AdminAnalyticsDashboard } from './components/AdminAnalyticsDashboard';
+import { ResetSalesModal } from './components/ResetSalesModal';
 import { exportAndDownloadBackup } from './utils/backup';
+import {
+  performFullDatabaseAutoSave,
+  getAutoSaveConfig,
+  getAutoSaveMetrics,
+  formatDataBytes,
+} from './utils/autoSave';
+import { loadOperatingHours, saveOperatingHours } from './utils/operatingHours';
 
 export default function App() {
-  // App state with local persistence
+  // App state with local persistence (checks unified pos_full_database snapshot first)
   const [cashiers, setCashiers] = useState<Cashier[]>(() => {
     try {
+      const full = localStorage.getItem('pos_full_database');
+      if (full) {
+        const parsed = JSON.parse(full);
+        if (Array.isArray(parsed.cashiers) && parsed.cashiers.length > 0) return parsed.cashiers;
+      }
       const saved = localStorage.getItem('pos_cashiers');
       if (saved) return JSON.parse(saved);
     } catch {}
@@ -38,8 +51,32 @@ export default function App() {
 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
-      const saved = localStorage.getItem('pos_products');
-      if (saved) return JSON.parse(saved);
+      const full = localStorage.getItem('pos_full_database');
+      let loaded: Product[] = [];
+      if (full) {
+        const parsed = JSON.parse(full);
+        if (Array.isArray(parsed.inventory) && parsed.inventory.length > 0) loaded = parsed.inventory;
+      }
+      if (loaded.length === 0) {
+        const saved = localStorage.getItem('pos_products');
+        if (saved) loaded = JSON.parse(saved);
+      }
+      if (loaded.length > 0) {
+        // If stored inventory lacks accessory items, append them so they are readily available
+        const hasAccessories = loaded.some(
+          (p) =>
+            p.category.includes('Joyería') ||
+            p.category.includes('Collares') ||
+            p.category.includes('Relojes') ||
+            p.category.includes('Pulseras') ||
+            p.category.includes('Accesorios')
+        );
+        if (!hasAccessories) {
+          const accItems = INITIAL_PRODUCTS.filter((p) => p.id.startsWith('acc-'));
+          return [...loaded, ...accItems];
+        }
+        return loaded;
+      }
     } catch {}
     return INITIAL_PRODUCTS;
   });
@@ -47,19 +84,44 @@ export default function App() {
   const [isLocked, setIsLocked] = useState<boolean>(true); // Starts locked to match reference design
   const [tickets, setTickets] = useState<SaleTicket[]>(() => {
     try {
+      const full = localStorage.getItem('pos_full_database');
+      if (full) {
+        const parsed = JSON.parse(full);
+        if (Array.isArray(parsed.tickets) && parsed.tickets.length > 0) return parsed.tickets;
+      }
       const saved = localStorage.getItem('pos_tickets');
       if (saved) return JSON.parse(saved);
     } catch {}
     return INITIAL_TICKETS;
   });
-  const [auditLogs, setAuditLogs] = useState<AuditEvent[]>(INITIAL_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState<AuditEvent[]>(() => {
+    try {
+      const full = localStorage.getItem('pos_full_database');
+      if (full) {
+        const parsed = JSON.parse(full);
+        if (Array.isArray(parsed.auditLogs) && parsed.auditLogs.length > 0) return parsed.auditLogs;
+      }
+    } catch {}
+    return INITIAL_AUDIT_LOGS;
+  });
 
   // Active view inside POS (includes new analytics tab)
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'shift' | 'tickets' | 'cashiers' | 'analytics'>('pos');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
   const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
+  const [backupModalInitialTab, setBackupModalInitialTab] = useState<'export' | 'autosave' | 'preview' | 'restore'>('autosave');
   const [viewMode, setViewMode] = useState<'responsive' | 'mobile_device'>('responsive');
+
+  // Floating Toast notification for Autosave and Limit Exceeded Downloads
+  const [autoSaveToast, setAutoSaveToast] = useState<{
+    message: string;
+    subMessage?: string;
+    type: 'save' | 'download_alert';
+  } | null>(null);
+
+  // Reset All Sales State Modal
+  const [showResetSalesModal, setShowResetSalesModal] = useState<boolean>(false);
 
   // RBAC Access Control Gate State for Non-Admin Cashiers
   const [showAdminGateModal, setShowAdminGateModal] = useState<boolean>(false);
@@ -70,7 +132,71 @@ export default function App() {
   // Emergency shift close state
   const [emergencyCloseNotice, setEmergencyCloseNotice] = useState<boolean>(false);
 
-  // Save changes to localStorage
+  // Dedicated Terminal Fullscreen API Mode
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    return typeof document !== 'undefined' && !!document.fullscreenElement;
+  });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    posAudio.playKeyClick();
+    try {
+      if (!document.fullscreenElement) {
+        const elem = document.documentElement as HTMLElement & {
+          webkitRequestFullscreen?: () => Promise<void>;
+          msRequestFullscreen?: () => Promise<void>;
+        };
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+        }
+        logAudit('lock', 'Modo Terminal Pantalla Completa activado');
+      } else {
+        const doc = document as Document & {
+          webkitExitFullscreen?: () => Promise<void>;
+          msExitFullscreen?: () => Promise<void>;
+        };
+        if (doc.exitFullscreen) {
+          await doc.exitFullscreen();
+        } else if (doc.webkitExitFullscreen) {
+          await doc.webkitExitFullscreen();
+        } else if (doc.msExitFullscreen) {
+          await doc.msExitFullscreen();
+        }
+        logAudit('lock', 'Modo Terminal Pantalla Completa desactivado');
+      }
+    } catch (err) {
+      console.warn('Fullscreen request could not be completed:', err);
+    }
+  };
+
+  // Store Operating Hours Configuration & Persistence
+  const [operatingHours, setOperatingHours] = useState<OperatingHoursConfig>(() => loadOperatingHours());
+
+  const handleUpdateOperatingHours = (newConfig: OperatingHoursConfig) => {
+    setOperatingHours(newConfig);
+    saveOperatingHours(newConfig);
+    logAudit(
+      'sale_completed',
+      `Horario operativo actualizado por ${currentCashier.name} (Control: ${newConfig.enabled ? 'Activo' : 'Inactivo'}, Modo Estricto: ${newConfig.strictMode ? 'Sí' : 'No'})`
+    );
+  };
+
+  // Individual localStorage item persistence
   useEffect(() => {
     try {
       localStorage.setItem('pos_cashiers', JSON.stringify(cashiers));
@@ -95,6 +221,20 @@ export default function App() {
     } catch {}
   }, [tickets]);
 
+  // Initial Snapshot creation if none exists yet
+  useEffect(() => {
+    if (!localStorage.getItem('pos_full_database')) {
+      performFullDatabaseAutoSave({
+        inventory: products,
+        cashiers,
+        auditLogs,
+        tickets,
+        triggerDescription: 'Snapshot inicial del sistema',
+        currentCashierName: currentCashier.name,
+      });
+    }
+  }, []);
+
   // Helper to log audit events
   const logAudit = useCallback((type: AuditEvent['type'], details: string) => {
     const now = new Date();
@@ -111,6 +251,57 @@ export default function App() {
       details,
     };
     setAuditLogs((prev) => [newLog, ...prev]);
+  }, [currentCashier.name]);
+
+  // Unified Auto-Save Trigger for Sales and Inventory Changes
+  const triggerAutoSave = useCallback((
+    newProducts: Product[],
+    newCashiers: Cashier[],
+    newAuditLogs: AuditEvent[],
+    newTickets: SaleTicket[],
+    triggerDesc: string
+  ) => {
+    const result = performFullDatabaseAutoSave({
+      inventory: newProducts,
+      cashiers: newCashiers,
+      auditLogs: newAuditLogs,
+      tickets: newTickets,
+      triggerDescription: triggerDesc,
+      currentCashierName: currentCashier.name,
+    });
+
+    const config = getAutoSaveConfig();
+
+    if (result.autoDownloaded) {
+      posAudio.playCashRegisterChime();
+      setAutoSaveToast({
+        type: 'download_alert',
+        message: '¡Descarga Automática de Respaldo!',
+        subMessage: `Base de datos superó límite de ${result.limitKB} KB (Actual: ${result.dataSizeKB} KB). Archivo descargado: ${result.downloadedFileName}`,
+      });
+
+      // Audit log entry
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} COT`;
+      const autoDownloadLog: AuditEvent = {
+        id: `a-${Date.now()}`,
+        timestamp: timeStr,
+        type: 'unlock_supervisor',
+        cashierName: 'Sistema de Autoguardado',
+        details: `Descarga automática generada: archivo ${result.downloadedFileName} (${result.dataSizeKB} KB excedió límite ${result.limitKB} KB)`,
+      };
+      setAuditLogs((prev) => [autoDownloadLog, ...prev]);
+    } else if (config.notifyToast) {
+      setAutoSaveToast({
+        type: 'save',
+        message: 'Base de datos autoguardada en LocalStorage',
+        subMessage: `${result.dataSizeFormatted} • ${triggerDesc}`,
+      });
+    }
+
+    setTimeout(() => {
+      setAutoSaveToast((curr) => (curr ? null : curr));
+    }, 4000);
   }, [currentCashier.name]);
 
   // Lock terminal
@@ -154,44 +345,120 @@ export default function App() {
 
   // Handle completed sale
   const handleCompleteSale = (ticket: SaleTicket, updatedCashier: Cashier) => {
-    setTickets((prev) => [ticket, ...prev]);
-    // Deduct stock for sold items
-    setProducts((prev) =>
-      prev.map((prod) => {
-        const cartItem = ticket.items.find((i) => i.product.id === prod.id);
-        if (cartItem) {
-          return {
-            ...prod,
-            stock: Math.max(0, prod.stock - cartItem.quantity),
-          };
-        }
-        return prod;
-      })
-    );
-    // Update cashier drawer cash & count
+    const nextTickets = [ticket, ...tickets];
+    const nextProducts = products.map((prod) => {
+      const cartItem = ticket.items.find((i) => i.product.id === prod.id);
+      if (cartItem) {
+        return {
+          ...prod,
+          stock: Math.max(0, prod.stock - cartItem.quantity),
+        };
+      }
+      return prod;
+    });
+    const nextCashiers = cashiers.map((c) => (c.id === updatedCashier.id ? updatedCashier : c));
+
+    setTickets(nextTickets);
+    setProducts(nextProducts);
     setCurrentCashier(updatedCashier);
-    setCashiers((prev) =>
-      prev.map((c) => (c.id === updatedCashier.id ? updatedCashier : c))
+    setCashiers(nextCashiers);
+
+    // Auto-save full database to localStorage and conditional auto-download on limit
+    triggerAutoSave(
+      nextProducts,
+      nextCashiers,
+      auditLogs,
+      nextTickets,
+      `Venta #${ticket.ticketNumber} completada`
     );
   };
 
   // Void a ticket
   const handleVoidTicket = (ticketId: string) => {
-    setTickets((prev) =>
-      prev.map((t) => {
-        if (t.id === ticketId) {
-          if (t.paymentMethod === 'efectivo') {
-            setCurrentCashier((c) => ({
-              ...c,
-              drawerCash: Math.max(0, c.drawerCash - t.total),
-            }));
-          }
-          logAudit('sale_completed', `Venta ${t.ticketNumber} anulada por supervisor`);
-          return { ...t, status: 'anulada' };
+    let voidedTicketNum = '';
+    const nextTickets = tickets.map((t) => {
+      if (t.id === ticketId) {
+        voidedTicketNum = t.ticketNumber;
+        if (t.paymentMethod === 'efectivo') {
+          setCurrentCashier((c) => ({
+            ...c,
+            drawerCash: Math.max(0, c.drawerCash - t.total),
+          }));
         }
-        return t;
-      })
+        logAudit('sale_completed', `Venta ${t.ticketNumber} anulada por supervisor`);
+        return { ...t, status: 'anulada' as const };
+      }
+      return t;
+    });
+    setTickets(nextTickets);
+    triggerAutoSave(
+      products,
+      cashiers,
+      auditLogs,
+      nextTickets,
+      `Venta ${voidedTicketNum} anulada`
     );
+  };
+
+  // Reset all sales data to zero handler (Exclusive to Administrator)
+  const handleResetSalesToZero = () => {
+    if (!isAdmin) {
+      posAudio.playErrorBuzz();
+      return;
+    }
+
+    // 1. Clear tickets
+    const previousTicketsCount = tickets.length;
+    setTickets([]);
+    try {
+      localStorage.setItem('pos_tickets', JSON.stringify([]));
+    } catch {}
+
+    // 2. Reset cashiers drawer cash and completed tickets to 0
+    const resetCashiers = cashiers.map((c) => ({
+      ...c,
+      drawerCash: 0,
+      completedTickets: 0,
+    }));
+    setCashiers(resetCashiers);
+    try {
+      localStorage.setItem('pos_cashiers', JSON.stringify(resetCashiers));
+    } catch {}
+
+    // 3. Reset current cashier sales and drawer cash
+    const updatedCurrent: Cashier = {
+      ...currentCashier,
+      drawerCash: 0,
+      completedTickets: 0,
+    };
+    setCurrentCashier(updatedCurrent);
+    try {
+      localStorage.setItem('pos_current_cashier', JSON.stringify(updatedCurrent));
+    } catch {}
+
+    // 4. Update full database snapshot with empty tickets and zeroed counters
+    triggerAutoSave(
+      products,
+      resetCashiers,
+      auditLogs,
+      [],
+      'Reinicio total de ventas a $0 realizado'
+    );
+
+    // 5. Audit log
+    logAudit(
+      'unlock_supervisor',
+      `REINICIO TOTAL: ${previousTicketsCount} ventas/tickets eliminados. Gaveta de caja y turnos restablecidos a $0 por ${currentCashier.name}`
+    );
+
+    // 6. Sound & Toast
+    posAudio.playCashRegisterChime();
+    setShowResetSalesModal(false);
+    setAutoSaveToast({
+      type: 'save',
+      message: '¡Ventas restablecidas a $0 exitosamente!',
+      subMessage: 'Todos los datos de ventas anteriores fueron eliminados. Listo para registrar ventas nuevas.',
+    });
   };
 
   // Toggle sound
@@ -203,36 +470,102 @@ export default function App() {
 
   // Cashiers Management Handlers
   const handleAddCashier = (newCashier: Cashier) => {
-    setCashiers((prev) => [...prev, newCashier]);
+    const nextCashiers = [...cashiers, newCashier];
+    setCashiers(nextCashiers);
+    triggerAutoSave(products, nextCashiers, auditLogs, tickets, `Nuevo cajero: ${newCashier.name}`);
   };
 
   const handleUpdateCashier = (updatedCashier: Cashier) => {
-    setCashiers((prev) =>
-      prev.map((c) => (c.id === updatedCashier.id ? updatedCashier : c))
-    );
+    const nextCashiers = cashiers.map((c) => (c.id === updatedCashier.id ? updatedCashier : c));
+    setCashiers(nextCashiers);
     if (currentCashier.id === updatedCashier.id) {
       setCurrentCashier(updatedCashier);
     }
+    triggerAutoSave(products, nextCashiers, auditLogs, tickets, `Cajero actualizado: ${updatedCashier.name}`);
   };
 
   const handleDeleteCashier = (cashierId: string) => {
-    setCashiers((prev) => prev.filter((c) => c.id !== cashierId));
+    const nextCashiers = cashiers.filter((c) => c.id !== cashierId);
+    setCashiers(nextCashiers);
+    triggerAutoSave(products, nextCashiers, auditLogs, tickets, `Cajero eliminado (${cashierId})`);
   };
 
-  // Inventory Management Handlers
+  // Inventory Management Handlers with Auto-Save
+  const handleUpdateProduct = (updated: Product) => {
+    const nextProducts = products.map((p) => (p.id === updated.id ? updated : p));
+    setProducts(nextProducts);
+    triggerAutoSave(
+      nextProducts,
+      cashiers,
+      auditLogs,
+      tickets,
+      `Producto modificado: ${updated.name}`
+    );
+  };
+
+  const handleAddProduct = (created: Product) => {
+    const nextProducts = [created, ...products];
+    setProducts(nextProducts);
+    logAudit('lock', `Nuevo producto creado: ${created.name} (${created.sku})`);
+    triggerAutoSave(
+      nextProducts,
+      cashiers,
+      auditLogs,
+      tickets,
+      `Producto creado: ${created.name}`
+    );
+  };
+
   const handleDeleteProduct = (productId: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    const nextProducts = products.filter((p) => p.id !== productId);
+    setProducts(nextProducts);
     logAudit('lock', `Producto ${productId} eliminado del catálogo por ${currentCashier.name}`);
+    triggerAutoSave(
+      nextProducts,
+      cashiers,
+      auditLogs,
+      tickets,
+      `Producto eliminado (${productId})`
+    );
   };
 
   const handleClearInventory = () => {
     setProducts([]);
     logAudit('lock', `Catálogo de inventario vaciado por ${currentCashier.name}`);
+    triggerAutoSave(
+      [],
+      cashiers,
+      auditLogs,
+      tickets,
+      'Inventario vaciado por administrador'
+    );
+  };
+
+  const handleBatchUpdateProducts = (updatedProducts: Product[], reason?: string) => {
+    setProducts(updatedProducts);
+    logAudit(
+      'lock',
+      reason || `Umbrales de stock mínimo actualizados en lote para ${updatedProducts.length} productos`
+    );
+    triggerAutoSave(
+      updatedProducts,
+      cashiers,
+      auditLogs,
+      tickets,
+      reason || `Umbrales actualizados (${updatedProducts.length} productos)`
+    );
   };
 
   const handleRestoreDefaultCatalog = () => {
     setProducts(INITIAL_PRODUCTS);
     logAudit('lock', `Catálogo de inventario de demostración restaurado`);
+    triggerAutoSave(
+      INITIAL_PRODUCTS,
+      cashiers,
+      auditLogs,
+      tickets,
+      'Catálogo demo restaurado'
+    );
   };
 
   // Direct export backup function
@@ -258,6 +591,10 @@ export default function App() {
     cashiers?: Cashier[];
     auditLogs?: AuditEvent[];
   }) => {
+    const nextProducts = backup.inventory && Array.isArray(backup.inventory) ? backup.inventory : products;
+    const nextCashiers = backup.cashiers && Array.isArray(backup.cashiers) ? backup.cashiers : cashiers;
+    const nextAuditLogs = backup.auditLogs && Array.isArray(backup.auditLogs) ? backup.auditLogs : auditLogs;
+
     if (backup.inventory && Array.isArray(backup.inventory)) {
       setProducts(backup.inventory);
     }
@@ -267,6 +604,14 @@ export default function App() {
     if (backup.auditLogs && Array.isArray(backup.auditLogs)) {
       setAuditLogs(backup.auditLogs);
     }
+
+    triggerAutoSave(
+      nextProducts,
+      nextCashiers,
+      nextAuditLogs,
+      tickets,
+      'Respaldo restaurado en el sistema'
+    );
   };
 
   // Tab navigation with Role-Based Access Control
@@ -341,6 +686,10 @@ export default function App() {
     ) {
       posAudio.playSuccessChime();
       setShowAdminGateModal(false);
+      const masterUser = cashiers.find((c) => c.isMaster);
+      if (masterUser && pendingAdminTab === 'cashiers') {
+        setCurrentCashier(masterUser);
+      }
       if (pendingAdminTab) {
         setActiveTab(pendingAdminTab);
       }
@@ -391,6 +740,16 @@ export default function App() {
 
   const isMobileLayout = viewMode === 'mobile_device';
 
+  const totalSalesAmount = tickets
+    .filter((t) => t.status === 'completada')
+    .reduce((acc, t) => acc + t.total, 0);
+
+  const adminCashierUser = cashiers.find((c) => c.isMaster) || {
+    id: 'admin',
+    name: 'Carlos M.',
+    pin: '9999',
+  };
+
   return (
     <div className="min-h-screen bg-[#0c1322] text-[#dce2f7] flex flex-col font-sans selection:bg-[#dc2626] selection:text-white overflow-x-hidden">
       {/* Top Floating Viewport Control Bar */}
@@ -430,12 +789,31 @@ export default function App() {
             </button>
           </div>
 
+          {/* Pantalla Completa (Fullscreen API) Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Salir del modo pantalla completa (Esc)' : 'Activar modo pantalla completa (Terminal dedicada)'}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition-all border shadow-sm ${
+              isFullscreen
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                : 'bg-[#191f2f] hover:bg-[#232a3a] text-[#adc6ff] hover:text-white border-[#374151]/40'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[15px]">
+              {isFullscreen ? 'fullscreen_exit' : 'fullscreen'}
+            </span>
+            <span className="hidden sm:inline">
+              {isFullscreen ? 'Salir Completa' : 'Pantalla Completa'}
+            </span>
+          </button>
+
           {/* Sound toggle */}
           <button
             type="button"
             onClick={toggleSound}
             title={soundEnabled ? 'Silenciar sonidos POS' : 'Activar sonidos POS'}
-            className="p-1 rounded bg-[#191f2f] text-[#e6bdb8] hover:text-white"
+            className="p-1 rounded-lg bg-[#191f2f] text-[#e6bdb8] hover:text-white border border-[#374151]/30"
           >
             <span className="material-symbols-outlined text-[16px]">
               {soundEnabled ? 'volume_up' : 'volume_off'}
@@ -585,10 +963,13 @@ export default function App() {
                         }`}
                       >
                         <span className="material-symbols-outlined text-[16px]">group</span>
-                        <span>Cajeros</span>
-                        {!isAdmin && (
-                          <span className="material-symbols-outlined text-[13px] text-[#f59e0b]">lock</span>
-                        )}
+                        <span>Personal</span>
+                        {!isAdmin ? (
+                          <span className="font-mono text-[9px] text-[#f59e0b] px-1.5 py-0.2 rounded bg-[#f59e0b]/20 font-bold border border-[#f59e0b]/30 flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[11px]">lock</span>
+                            Solo Admin
+                          </span>
+                        ) : null}
                       </button>
 
                       {/* 5. Métricas & Analítica (Exclusive Admin) */}
@@ -626,19 +1007,41 @@ export default function App() {
 
                   {/* Right: Actions, Logout & Lock */}
                   <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                    {/* Admin Backup JSON button */}
+                    {/* ÚNICO BOTÓN DEL SISTEMA: Poner Todo en $0 (Exclusivo Administrador) */}
                     {isAdmin && (
                       <button
                         type="button"
                         onClick={() => {
                           posAudio.playKeyClick();
+                          setShowResetSalesModal(true);
+                        }}
+                        title="Poner todo en $0 y comenzar a hacer ventas nuevas (Borrar ventas existentes en caja, cierre y tickets)"
+                        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white border border-red-400 text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                        <span className="hidden sm:inline">Poner Todo en $0</span>
+                        <span className="sm:hidden text-[11px]">En $0</span>
+                        <span className="text-[9px] bg-red-950 text-red-200 px-1.5 py-0.2 rounded font-mono font-bold uppercase tracking-wider border border-red-400/40 hidden xs:inline">
+                          Admin
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Admin Backup & Autosave JSON button */}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          setBackupModalInitialTab('autosave');
                           setShowBackupModal(true);
                         }}
-                        title="Respaldo Local JSON (Inventario, Cajeros y Auditoría)"
-                        className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-[#f59e0b]/20 hover:bg-[#f59e0b] text-[#f59e0b] hover:text-[#3d2400] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-sm"
+                        title="Autoguardado en LocalStorage y Respaldo JSON"
+                        className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-[#f59e0b]/20 hover:bg-[#f59e0b] text-[#f59e0b] hover:text-[#3d2400] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-sm"
                       >
                         <span className="material-symbols-outlined text-[16px]">backup</span>
-                        <span className="hidden lg:inline">Respaldo JSON</span>
+                        <span className="hidden lg:inline">Autoguardado & Respaldo</span>
+                        <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse" title="Autoguardado en tiempo real activo" />
                       </button>
                     )}
 
@@ -689,20 +1092,24 @@ export default function App() {
                     onLogout={handleLogout}
                     onCompleteSale={handleCompleteSale}
                     onLogAudit={logAudit}
+                    operatingHours={operatingHours}
+                    onOpenScheduleSettings={() => handleTabClick('analytics')}
                   />
                 )}
 
                 {activeTab === 'inventory' && (
                   <InventoryManager
                     products={products}
-                    onUpdateProduct={(updated) =>
-                      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
-                    }
-                    onAddProduct={(created) => setProducts((prev) => [created, ...prev])}
+                    onUpdateProduct={handleUpdateProduct}
+                    onBatchUpdateProducts={handleBatchUpdateProducts}
+                    onAddProduct={handleAddProduct}
                     onDeleteProduct={handleDeleteProduct}
                     onClearInventory={handleClearInventory}
                     onRestoreDefaultCatalog={handleRestoreDefaultCatalog}
-                    onOpenBackupModal={() => setShowBackupModal(true)}
+                    onOpenBackupModal={() => {
+                      setBackupModalInitialTab('autosave');
+                      setShowBackupModal(true);
+                    }}
                   />
                 )}
 
@@ -715,8 +1122,12 @@ export default function App() {
                     onDeleteCashier={handleDeleteCashier}
                     onSwitchCashier={handleSwitchCashier}
                     onLogAudit={logAudit}
-                    onOpenBackupModal={() => setShowBackupModal(true)}
+                    onOpenBackupModal={() => {
+                      setBackupModalInitialTab('autosave');
+                      setShowBackupModal(true);
+                    }}
                     onOpenAnalytics={() => setActiveTab('analytics')}
+                    onSwitchToAdmin={handleSwitchToAdminAccount}
                   />
                 )}
 
@@ -728,6 +1139,8 @@ export default function App() {
                     onOpenPos={() => setActiveTab('pos')}
                     onOpenInventory={() => handleTabClick('inventory')}
                     onSimulateSale={handleSimulateSale}
+                    operatingHours={operatingHours}
+                    onUpdateOperatingHours={handleUpdateOperatingHours}
                   />
                 )}
 
@@ -743,7 +1156,11 @@ export default function App() {
                 )}
 
                 {activeTab === 'tickets' && (
-                  <TicketsHistory tickets={tickets} onVoidTicket={handleVoidTicket} />
+                  <TicketsHistory
+                    tickets={tickets}
+                    onVoidTicket={handleVoidTicket}
+                    onOpenPos={() => setActiveTab('pos')}
+                  />
                 )}
               </main>
 
@@ -795,7 +1212,7 @@ export default function App() {
                     </span>
                   </button>
 
-                  {/* 4. Cajeros */}
+                  {/* 4. Personal & Cajeros (Exclusive Admin) */}
                   <button
                     type="button"
                     onClick={() => handleTabClick('cashiers')}
@@ -805,7 +1222,7 @@ export default function App() {
                   >
                     <span className="material-symbols-outlined text-[19px]">group</span>
                     <span className="text-[9px] font-semibold tracking-tight mt-0.5 flex items-center gap-0.5">
-                      Cajeros
+                      Personal
                       {!isAdmin && <span className="material-symbols-outlined text-[10px] text-[#f59e0b]">lock</span>}
                     </span>
                   </button>
@@ -975,8 +1392,77 @@ export default function App() {
           onClose={() => setShowBackupModal(false)}
           onLogAudit={logAudit}
           onRestoreBackup={handleRestoreBackup}
+          initialTab={backupModalInitialTab}
+          onForceAutoSaveTrigger={() =>
+            triggerAutoSave(products, cashiers, auditLogs, tickets, 'Forzado manual desde modal')
+          }
         />
       )}
+
+      {/* Floating Auto-Save / Auto-Download Toast Notification */}
+      {autoSaveToast && (
+        <div
+          className={`fixed bottom-5 right-5 z-50 max-w-sm sm:max-w-md p-3.5 rounded-2xl shadow-2xl border flex items-start gap-3 backdrop-blur-md animate-fadeIn transition-all ${
+            autoSaveToast.type === 'download_alert'
+              ? 'bg-[#1e1b18]/95 border-[#f59e0b] text-[#f59e0b]'
+              : 'bg-[#101726]/95 border-[#10b981]/50 text-[#10b981]'
+          }`}
+        >
+          <div
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+              autoSaveToast.type === 'download_alert'
+                ? 'bg-[#f59e0b]/20 text-[#f59e0b]'
+                : 'bg-[#10b981]/20 text-[#10b981]'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">
+              {autoSaveToast.type === 'download_alert' ? 'download_done' : 'save'}
+            </span>
+          </div>
+          <div className="flex-1 text-xs">
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-white text-xs">{autoSaveToast.message}</p>
+              <button
+                type="button"
+                onClick={() => setAutoSaveToast(null)}
+                className="text-gray-400 hover:text-white ml-2 text-xs"
+              >
+                ×
+              </button>
+            </div>
+            {autoSaveToast.subMessage && (
+              <p className="text-[11px] text-[#e6bdb8] mt-0.5 leading-snug">
+                {autoSaveToast.subMessage}
+              </p>
+            )}
+            <div className="mt-1.5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBackupModalInitialTab('autosave');
+                  setShowBackupModal(true);
+                  setAutoSaveToast(null);
+                }}
+                className="text-[10px] font-bold underline hover:text-white"
+              >
+                Configurar autoguardado & límites
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Sales Confirmation Modal */}
+      <ResetSalesModal
+        isOpen={showResetSalesModal}
+        onClose={() => setShowResetSalesModal(false)}
+        onConfirmReset={handleResetSalesToZero}
+        ticketsCount={tickets.length}
+        totalSalesAmount={totalSalesAmount}
+        isAdmin={isAdmin}
+        currentCashierName={currentCashier.name}
+        adminPin={adminCashierUser.pin}
+      />
     </div>
   );
 }

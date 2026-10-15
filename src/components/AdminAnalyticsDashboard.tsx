@@ -14,7 +14,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { SaleTicket, Product, Cashier } from '../types/pos';
+import { SaleTicket, Product, Cashier, OperatingHoursConfig } from '../types/pos';
 import {
   calculateAnalyticsMetrics,
   formatCurrencyCOP,
@@ -23,6 +23,11 @@ import {
   TopProductMetric,
 } from '../utils/analytics';
 import { posAudio } from '../utils/audio';
+import { StoreOperatingHoursSection } from './StoreOperatingHoursSection';
+import {
+  checkIsWithinOperatingHours,
+  DEFAULT_OPERATING_HOURS,
+} from '../utils/operatingHours';
 
 interface AdminAnalyticsDashboardProps {
   tickets: SaleTicket[];
@@ -31,6 +36,8 @@ interface AdminAnalyticsDashboardProps {
   onOpenPos?: () => void;
   onOpenInventory?: () => void;
   onSimulateSale?: () => void;
+  operatingHours?: OperatingHoursConfig;
+  onUpdateOperatingHours?: (newConfig: OperatingHoursConfig) => void;
 }
 
 export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = ({
@@ -40,17 +47,24 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
   onOpenPos,
   onOpenInventory,
   onSimulateSale,
+  operatingHours = DEFAULT_OPERATING_HOURS,
+  onUpdateOperatingHours,
 }) => {
   // View states
   const [salesChartType, setSalesChartType] = useState<'area' | 'bar'>('area');
   const [productRankingBy, setProductRankingBy] = useState<'units' | 'revenue'>('units');
-  const [activeTabSection, setActiveTabSection] = useState<'overview' | 'products' | 'daily'>('overview');
+  const [activeTabSection, setActiveTabSection] = useState<'overview' | 'products' | 'daily' | 'schedule'>('overview');
   const [downloadSuccessNotice, setDownloadSuccessNotice] = useState<boolean>(false);
 
   // Calculate metrics based on current tickets and catalog
   const analytics = useMemo(() => {
     return calculateAnalyticsMetrics(tickets, products);
   }, [tickets, products]);
+
+  // Real-time operating hours status for today
+  const storeStatus = useMemo(() => {
+    return checkIsWithinOperatingHours(operatingHours);
+  }, [operatingHours]);
 
   // Prepared data for Top Products Chart (top 7)
   const topProductsChartData = useMemo(() => {
@@ -185,6 +199,33 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
         </div>
       </div>
 
+      {/* Zero State Notice when all sales have been reset to 0 */}
+      {tickets.length === 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-emerald-300 text-xs shadow-lg animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+              <span className="material-symbols-outlined text-[24px]">restart_alt</span>
+            </div>
+            <div>
+              <p className="font-bold text-white text-sm">Sistema de Ventas Restablecido a $0</p>
+              <p className="text-[11px] text-gray-300">
+                Se han borrado los datos anteriores de ventas. Las métricas y gráficos iniciarán limpios con tus nuevas transacciones.
+              </p>
+            </div>
+          </div>
+          {onOpenPos && (
+            <button
+              type="button"
+              onClick={onOpenPos}
+              className="px-4 py-2 rounded-xl bg-[#dc2626] hover:bg-[#ef4444] text-white text-xs font-bold transition-all shadow-md active:scale-95 shrink-0 flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <span className="material-symbols-outlined text-[16px]">point_of_sale</span>
+              <span>Comenzar Nuevas Ventas</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* CSV Export Notice */}
       {downloadSuccessNotice && (
         <div className="flex items-center gap-2 p-3 bg-[#10b981]/15 border border-[#10b981]/40 text-[#10b981] rounded-xl text-xs font-semibold animate-fadeIn">
@@ -268,20 +309,21 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-[#141b2b] rounded-xl border border-[#374151]/30 w-fit">
+      <div className="flex items-center gap-1.5 p-1 bg-[#141b2b] rounded-xl border border-[#374151]/30 w-full sm:w-fit overflow-x-auto">
         <button
           type="button"
           onClick={() => {
             posAudio.playKeyClick();
             setActiveTabSection('overview');
           }}
-          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
             activeTabSection === 'overview'
               ? 'bg-[#232a3a] text-white shadow-sm'
               : 'text-[#e6bdb8] hover:text-white'
           }`}
         >
-          Vista General
+          <span className="material-symbols-outlined text-[15px]">dashboard</span>
+          <span>Vista General</span>
         </button>
         <button
           type="button"
@@ -289,13 +331,14 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
             posAudio.playKeyClick();
             setActiveTabSection('daily');
           }}
-          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
             activeTabSection === 'daily'
               ? 'bg-[#232a3a] text-white shadow-sm'
               : 'text-[#e6bdb8] hover:text-white'
           }`}
         >
-          Desglose Día por Día
+          <span className="material-symbols-outlined text-[15px]">calendar_view_week</span>
+          <span>Desglose Día por Día</span>
         </button>
         <button
           type="button"
@@ -303,18 +346,106 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
             posAudio.playKeyClick();
             setActiveTabSection('products');
           }}
-          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
             activeTabSection === 'products'
               ? 'bg-[#232a3a] text-white shadow-sm'
               : 'text-[#e6bdb8] hover:text-white'
           }`}
         >
-          Ranking de Productos
+          <span className="material-symbols-outlined text-[15px]">leaderboard</span>
+          <span>Ranking de Productos</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            posAudio.playKeyClick();
+            setActiveTabSection('schedule');
+          }}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap border ${
+            activeTabSection === 'schedule'
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+              : 'text-[#f59e0b] hover:text-white border-transparent'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[16px]">schedule</span>
+          <span>Horario Operativo</span>
+          {operatingHours.enabled ? (
+            storeStatus.isWithinHours ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            )
+          ) : null}
         </button>
       </div>
 
-      {/* MAIN SECTION 1: CHART 1 - Ventas Totales por Día durante la Última Semana */}
-      <div className="bg-[#191f2f] p-5 rounded-2xl border border-[#374151]/40 shadow-xl flex flex-col space-y-4">
+      {/* RENDER HORARIO OPERATIVO SECTION */}
+      {activeTabSection === 'schedule' && (
+        <StoreOperatingHoursSection
+          config={operatingHours}
+          onUpdateConfig={onUpdateOperatingHours || (() => {})}
+          onOpenPos={onOpenPos}
+        />
+      )}
+
+      {/* RENDER ANALYTICS CHARTS & KPI VIEW */}
+      {activeTabSection !== 'schedule' && (
+        <>
+          {/* Quick Horario Operativo Summary Strip on Overview */}
+          {activeTabSection === 'overview' && (
+            <div className="bg-[#191f2f] border border-[#374151]/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                    !operatingHours.enabled
+                      ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                      : storeStatus.isWithinHours
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                      : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[22px]">schedule</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white">Horario Operativo de la Tienda</span>
+                    {operatingHours.enabled ? (
+                      storeStatus.isWithinHours ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                          ● ABIERTO (Hasta las {storeStatus.closeTimeFormatted})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 font-mono">
+                          ● FUERA DE HORARIO
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 font-mono">
+                        24/7 SIN RESTRICCIÓN
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#e6bdb8] mt-0.5">
+                    {storeStatus.reason} · {storeStatus.nextChangeNote}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setActiveTabSection('schedule');
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#f59e0b] border border-[#f59e0b]/40 text-xs font-bold transition-all shadow-sm shrink-0 self-start sm:self-auto"
+              >
+                <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
+                <span>Configurar Horario</span>
+              </button>
+            </div>
+          )}
+
+          {/* MAIN SECTION 1: CHART 1 - Ventas Totales por Día durante la Última Semana */}
+          <div className="bg-[#191f2f] p-5 rounded-2xl border border-[#374151]/40 shadow-xl flex flex-col space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#374151]/30">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -790,6 +921,8 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

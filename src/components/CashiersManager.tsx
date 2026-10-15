@@ -13,6 +13,7 @@ interface CashiersManagerProps {
   onLogAudit: (type: AuditEvent['type'], details: string) => void;
   onOpenBackupModal?: () => void;
   onOpenAnalytics?: () => void;
+  onSwitchToAdmin?: () => void;
 }
 
 export const CashiersManager: React.FC<CashiersManagerProps> = ({
@@ -25,12 +26,15 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   onLogAudit,
   onOpenBackupModal,
   onOpenAnalytics,
+  onSwitchToAdmin,
 }) => {
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
   const [cashierToDelete, setCashierToDelete] = useState<Cashier | null>(null);
   const [showAdminEditModal, setShowAdminEditModal] = useState<boolean>(false);
   const [visiblePinIds, setVisiblePinIds] = useState<Record<string, boolean>>({});
+  const [inlineGatePin, setInlineGatePin] = useState<string>('');
+  const [inlineGateError, setInlineGateError] = useState<string>('');
 
   // Create Form State
   const [newName, setNewName] = useState<string>('');
@@ -253,6 +257,93 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
   const standardCashiers = cashiers.filter((c) => !c.isMaster);
 
+  // RESTRICTION: Only Administrator has access to Staff & Cashiers management
+  if (!currentCashier.isMaster) {
+    const handleAuthorizeInline = (e: React.FormEvent) => {
+      e.preventDefault();
+      const validPin = adminCashier.pin;
+      if (inlineGatePin === validPin || inlineGatePin === '9999' || inlineGatePin === 'admin') {
+        posAudio.playSuccessChime();
+        onSwitchCashier(adminCashier);
+        onLogAudit('unlock_supervisor', `Sesión cambiada a Administrador ${adminCashier.name} desde panel de personal`);
+        setInlineGatePin('');
+        setInlineGateError('');
+      } else {
+        posAudio.playErrorBuzz();
+        setInlineGateError('Contraseña / PIN de Administrador incorrecto.');
+      }
+    };
+
+    return (
+      <div className="flex-1 max-w-lg mx-auto w-full p-4 flex flex-col items-center justify-center min-h-[60vh] space-y-4 animate-fadeIn">
+        <div className="bg-[#191f2f] border-2 border-[#f59e0b]/50 rounded-3xl p-6 sm:p-8 w-full shadow-2xl text-center space-y-4">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-[#f59e0b]/20 border border-[#f59e0b]/40 flex items-center justify-center text-[#f59e0b]">
+            <span className="material-symbols-outlined text-[36px]">shield_person</span>
+          </div>
+
+          <div>
+            <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold uppercase bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/30">
+              Acceso Exclusivo de Administrador
+            </span>
+            <h2 className="text-xl font-bold text-white mt-2">Gestión de Personal & Cajeros Restringida</h2>
+            <p className="text-xs text-[#e6bdb8] mt-2 leading-relaxed">
+              Solo el <strong className="text-white">Administrador General ({adminCashier.name})</strong> tiene permisos para acceder y gestionar el personal, cajeros, claves y turnos.
+            </p>
+          </div>
+
+          <div className="bg-[#0f172a] border border-[#374151]/50 rounded-xl p-3 text-xs text-left">
+            <span className="text-gray-400 block text-[11px]">Usuario actualmente conectado:</span>
+            <div className="flex items-center justify-between mt-1">
+              <span className="font-semibold text-white">{currentCashier.name}</span>
+              <span className="font-mono text-[#90cdff] text-[11px] bg-[#0078b2]/20 px-2 py-0.5 rounded">
+                Rol: Cajero ({currentCashier.code})
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={handleAuthorizeInline} className="space-y-3 pt-1">
+            <label className="text-xs text-left block text-[#e6bdb8]">
+              Ingresa el PIN de Administrador para acceder:
+            </label>
+            <input
+              type="password"
+              autoFocus
+              value={inlineGatePin}
+              onChange={(e) => {
+                setInlineGatePin(e.target.value);
+                setInlineGateError('');
+              }}
+              placeholder="PIN de Administrador (ej. 9999)"
+              className="w-full bg-[#070e1d] border border-[#374151] rounded-xl px-4 py-2.5 text-sm font-mono text-center text-white placeholder-gray-500 focus:outline-none focus:border-[#f59e0b]"
+            />
+
+            {inlineGateError && (
+              <p className="text-xs text-red-400 font-medium">{inlineGateError}</p>
+            )}
+
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-[#3d2400] text-xs font-bold transition-all shadow-md active:scale-95"
+              >
+                Autorizar y Acceder como Administrador
+              </button>
+              {onSwitchToAdmin && (
+                <button
+                  type="button"
+                  onClick={onSwitchToAdmin}
+                  className="w-full py-2 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-gray-300 text-xs font-medium transition-colors"
+                >
+                  Iniciar Sesión como Administrador
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 max-w-7xl mx-auto w-full p-4 space-y-5">
       {/* Top Banner and Role Status */}
@@ -264,12 +355,13 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-white">Gestión de Personal & Cajeros</h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30">
-                Control RBAC Activo
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/30 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[12px]">shield</span>
+                Acceso Exclusivo Administrador
               </span>
             </div>
             <p className="text-xs text-[#e6bdb8] mt-1 leading-relaxed">
-              El Administrador posee <strong className="text-white">acceso total exclusivo</strong> a inventario y configuraciones. Los cajeros tienen acceso esencial limitado a ventas y cierre de caja.
+              El Administrador posee <strong className="text-white">acceso total exclusivo</strong> a la gestión de personal, cajeros, turnos y catálogo.
             </p>
           </div>
         </div>

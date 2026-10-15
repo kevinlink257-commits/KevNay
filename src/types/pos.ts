@@ -51,6 +51,7 @@ export interface SaleTicket {
   paymentMethod: PaymentMethod;
   amountPaid: number;
   changeReturned: number;
+  outsideOperatingHours?: boolean;
   status: 'completada' | 'anulada';
 }
 
@@ -73,4 +74,22 @@ export interface AuditEvent {
   type: 'lock' | 'unlock_pin' | 'unlock_nfc' | 'unlock_biometric' | 'unlock_supervisor' | 'failed_pin' | 'sale_completed' | 'shift_close';
   cashierName: string;
   details: string;
+}
+
+export type DayOfWeekKey = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+
+export interface DaySchedule {
+  day: DayOfWeekKey;
+  dayName: string; // e.g. "Lunes", "Martes", etc.
+  isOpen: boolean;
+  openTime: string; // '08:00'
+  closeTime: string; // '20:00'
+}
+
+export interface OperatingHoursConfig {
+  enabled: boolean;
+  strictMode: boolean; // true = requiere autorización / PIN si está fuera de horario, false = advertencia informativa
+  requirePinToOverride: boolean;
+  noticeMessage: string;
+  schedule: DaySchedule[];
 }

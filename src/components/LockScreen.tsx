@@ -1,7 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Cashier, AuditEvent } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
+import {
+  LockScreenImage,
+  getStoredLockScreenImages,
+  saveStoredLockScreenImages,
+  resetLockScreenImagesToDefault,
+  getStoredDimmerLevel,
+  saveStoredDimmerLevel,
+  getStoredSlideInterval,
+  saveStoredSlideInterval,
+} from '../utils/lockScreenImages';
+import { LockScreenGalleryModal } from './LockScreenGalleryModal';
 
 interface LockScreenProps {
   currentCashier: Cashier;
@@ -24,7 +35,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   soundEnabled,
   onToggleSound,
 }) => {
-  const [pin, setPin] = useState<string>('741'); // Start with 3 prefilled digits like in reference screenshot
+  // PIN and terminal states
+  const [pin, setPin] = useState<string>('741'); // Prefilled with 3 digits for quick unlocking demonstration
   const [feedback, setFeedback] = useState<string>('Esperando último dígito...');
   const [feedbackStatus, setFeedbackStatus] = useState<'normal' | 'verifying' | 'success' | 'error'>('normal');
   const [isShaking, setIsShaking] = useState<boolean>(false);
@@ -32,7 +44,17 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [showSupervisorModal, setShowSupervisorModal] = useState<boolean>(false);
   const [supervisorPin, setSupervisorPin] = useState<string>('');
   const [supervisorError, setSupervisorError] = useState<string>('');
-  
+
+  // Accessory store images gallery states
+  const [images, setImages] = useState<LockScreenImage[]>(() => getStoredLockScreenImages());
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+  const [dimmerLevel, setDimmerLevel] = useState<'low' | 'medium' | 'high'>(() => getStoredDimmerLevel());
+  const [slideInterval, setSlideInterval] = useState<number>(() => getStoredSlideInterval());
+  const [isSlidePlaying, setIsSlidePlaying] = useState<boolean>(true);
+  const [showGalleryModal, setShowGalleryModal] = useState<boolean>(false);
+  const [isVitrinaCleanMode, setIsVitrinaCleanMode] = useState<boolean>(false);
+  const [lockToast, setLockToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
   // NFC states
   const [showNfcModal, setShowNfcModal] = useState<boolean>(false);
   const [nfcFeedback, setNfcFeedback] = useState<string | null>(null);
@@ -41,8 +63,20 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [manualNfcInput, setManualNfcInput] = useState<string>('');
   const [webNfcSupported, setWebNfcSupported] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<string>('');
+  const [currentDateStr, setCurrentDateStr] = useState<string>('');
 
-  // Live COT clock
+  // Slideshow timer
+  useEffect(() => {
+    if (!isSlidePlaying || slideInterval <= 0 || images.length <= 1) return;
+
+    const timer = setInterval(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % images.length);
+    }, slideInterval * 1000);
+
+    return () => clearInterval(timer);
+  }, [isSlidePlaying, slideInterval, images.length]);
+
+  // Live COT clock and formatted date
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -50,20 +84,65 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       const minutes = String(now.getMinutes()).padStart(2, '0');
       const seconds = String(now.getSeconds()).padStart(2, '0');
       setCurrentTime(`${hours}:${minutes}:${seconds} COT`);
+
+      const options: Intl.DateTimeFormatOptions = {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      };
+      const formattedDate = now.toLocaleDateString('es-ES', options);
+      setCurrentDateStr(formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1));
     };
+
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Detect Web NFC hardware support
+  // Web NFC detector
   useEffect(() => {
     if (typeof window !== 'undefined' && 'NDEFReader' in window) {
       setWebNfcSupported(true);
     }
   }, []);
 
-  // Strict NFC Authentication Handler
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (lockToast) {
+      const timer = setTimeout(() => {
+        setLockToast(null);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [lockToast]);
+
+  const showToast = useCallback((message: string, type: 'success' | 'info' = 'info') => {
+    setLockToast({ message, type });
+  }, []);
+
+  // Slideshow navigation
+  const handleNextImage = () => {
+    posAudio.playKeyClick();
+    setCurrentImageIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const handlePrevImage = () => {
+    posAudio.playKeyClick();
+    setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  // Direct reset to default images
+  const handleQuickResetDefaults = () => {
+    posAudio.playSuccessChime();
+    const restored = resetLockScreenImagesToDefault();
+    saveStoredLockScreenImages(restored);
+    setImages(restored);
+    setCurrentImageIndex(0);
+    showToast('✨ Imágenes de vitrina y accesorios restablecidas por defecto', 'success');
+  };
+
+  // Strict NFC Card Authentication Handler
   const handleNfcCard = useCallback(
     (cardId: string) => {
       const cleanId = cardId.trim();
@@ -117,15 +196,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         return;
       }
 
-      // Check 4: Unknown / Unauthorized card -> Strictly refuse, NO bypass
+      // Check 4: Unknown / Unauthorized card
       posAudio.playErrorBuzz();
-      setNfcError(`❌ Tarjeta NFC "${cleanId}" no registrada o sin permisos de acceso.`);
+      setNfcError(`❌ Tarjeta NFC "${cleanId}" no registrada o sin permisos.`);
       onLogAudit('failed_pin', `Intento de acceso denegado con tarjeta NFC no autorizada ${cleanId}`);
     },
     [currentCashier, cashiers, onUnlock, onLogAudit]
   );
 
-  // Web NFC hardware listener (when supported by browser e.g. Android Chrome)
+  // Web NFC hardware listener
   useEffect(() => {
     let ndefController: AbortController | null = null;
     const windowWithNfc = window as unknown as {
@@ -140,9 +219,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       try {
         ndefController = new AbortController();
         const ndef = new windowWithNfc.NDEFReader();
-        ndef.scan({ signal: ndefController.signal }).catch(() => {
-          // NFC scan error or permission dismissed
-        });
+        ndef.scan({ signal: ndefController.signal }).catch(() => {});
         ndef.onreading = (event) => {
           if (event.serialNumber) {
             handleNfcCard(event.serialNumber);
@@ -178,10 +255,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       const adminPin = adminUser ? adminUser.pin : '9999';
 
       setTimeout(() => {
-        // Valid if matches cashier's pin or admin's pin
-        const isValid =
-          inputPin === currentCashier.pin ||
-          inputPin === adminPin;
+        const isValid = inputPin === currentCashier.pin || inputPin === adminPin;
 
         if (isValid) {
           setFeedbackStatus('success');
@@ -241,14 +315,18 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   };
 
-  // Keyboard navigation for physical POS keypads
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (showSupervisorModal || showNfcModal) return;
+      if (showSupervisorModal || showNfcModal || showGalleryModal) return;
       if (e.key >= '0' && e.key <= '9') {
         handleKey(e.key);
       } else if (e.key === 'Backspace') {
         handleBackspace();
+      } else if (e.key === 'ArrowRight') {
+        handleNextImage();
+      } else if (e.key === 'ArrowLeft') {
+        handlePrevImage();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -261,10 +339,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     const adminUser = cashiers.find((c) => c.isMaster) || currentCashier;
     const adminPin = adminUser.pin;
 
-    if (
-      supervisorPin === adminPin ||
-      (adminPin === '9999' && supervisorPin === '9999')
-    ) {
+    if (supervisorPin === adminPin || (adminPin === '9999' && supervisorPin === '9999')) {
       posAudio.playSuccessChime();
       setShowSupervisorModal(false);
       onLogAudit('unlock_supervisor', `Desbloqueo maestro autorizado por supervisor`);
@@ -275,382 +350,573 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   };
 
+  const currentImage = images[currentImageIndex] || images[0];
+
+  // Overlay opacity class based on dimmer level
+  const dimmerOverlayClass =
+    dimmerLevel === 'low'
+      ? 'bg-black/45'
+      : dimmerLevel === 'high'
+      ? 'bg-black/78 backdrop-blur-[1px]'
+      : 'bg-black/62';
+
   return (
-    <div className="relative min-h-screen bg-[#0c1322] text-[#dce2f7] flex flex-col items-center justify-start pb-8">
-      {/* Fixed Header */}
-      <header className="fixed top-0 w-full z-40 bg-[#191f2f]/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.4)] border-b border-[#374151]/30">
-        <div className="max-w-md mx-auto h-16 px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-11 h-11 flex items-center justify-center rounded-lg bg-[#232a3a] text-[#dce2f7]">
-              <span className="material-symbols-outlined text-[20px] text-[#dc2626]">lock</span>
+    <div className="relative min-h-[100dvh] w-full overflow-hidden flex flex-col justify-between select-none bg-[#070e1d]">
+      {/* 1. DYNAMIC ACCESSORY STORE BACKGROUND IMAGE WITH SMOOTH TRANSITION */}
+      <div className="absolute inset-0 z-0 overflow-hidden">
+        {images.map((img, idx) => {
+          const isVisible = idx === currentImageIndex;
+          return (
+            <div
+              key={img.id}
+              className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+                isVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
+              }`}
+              style={{
+                backgroundImage: `url(${img.url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                transition: 'opacity 1s cubic-bezier(0.4, 0, 0.2, 1), transform 8s ease-out',
+              }}
+            />
+          );
+        })}
+
+        {/* Ambient Overlay to balance store scenery and POS readability */}
+        <div className={`absolute inset-0 ${dimmerOverlayClass} transition-colors duration-500`} />
+        {/* Subtle Vignette Gradients */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#070e1d] via-transparent to-[#070e1d]/80 pointer-events-none" />
+        <div className="absolute inset-0 bg-radial-gradient from-transparent via-transparent to-black/60 pointer-events-none" />
+      </div>
+
+      {/* 2. TOP BAR: Store Branding, Gallery Controls & Clock */}
+      <header className="relative z-20 w-full px-3 sm:px-6 pt-3 sm:pt-4">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 bg-[#121927]/80 backdrop-blur-xl border border-white/10 rounded-2xl px-3 sm:px-5 py-2.5 shadow-2xl">
+          {/* Left Store & Terminal Title */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#dc2626] to-[#f59e0b] flex items-center justify-center text-white shadow-md">
+              <span className="material-symbols-outlined text-[20px]">diamond</span>
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-xs uppercase tracking-wider font-semibold text-[#dce2f7]">POS-01</span>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-[#dc2626]/20 text-[#ef4444] font-mono text-[11px] font-semibold">
-                  BLOQUEADO
+                <span className="font-extrabold text-xs sm:text-sm tracking-tight text-white uppercase">
+                  Kev Nay Accesorios
+                </span>
+                <span className="px-1.5 py-0.2 rounded bg-[#dc2626]/30 text-[#ff7171] border border-[#dc2626]/40 font-mono text-[10px] font-bold">
+                  POS-01
                 </span>
               </div>
-              <span className="text-[11px] text-[#e6bdb8] font-medium">Bloqueo Terminal & Pin</span>
+              <span className="text-[10px] text-[#e6bdb8] font-medium flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse"></span>
+                <span>Boutique de Accesorios & Joyería</span>
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Center: Image Title & Carousel Quick Controls */}
+          <div className="hidden md:flex items-center gap-2 bg-[#0c1322]/70 px-3 py-1.5 rounded-xl border border-white/10">
             <button
+              type="button"
+              onClick={handlePrevImage}
+              title="Foto anterior"
+              className="w-7 h-7 rounded-lg bg-[#232a3a]/80 hover:bg-[#323949] text-white flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+            </button>
+
+            <div className="flex flex-col items-center px-1 min-w-[200px] text-center">
+              <span className="text-xs font-semibold text-white truncate max-w-[220px]">
+                {currentImage?.title || 'Vitrina de Accesorios'}
+              </span>
+              <span className="text-[10px] text-[#adc6ff] font-mono">
+                {currentImageIndex + 1} de {images.length} • {currentImage?.category || 'Tienda'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleNextImage}
+              title="Siguiente foto"
+              className="w-7 h-7 rounded-lg bg-[#232a3a]/80 hover:bg-[#323949] text-white flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setIsSlidePlaying(!isSlidePlaying);
+              }}
+              title={isSlidePlaying ? 'Pausar carrusel automático' : 'Reanudar carrusel automático'}
+              className="w-7 h-7 rounded-lg bg-[#232a3a]/80 hover:bg-[#323949] text-[#adc6ff] flex items-center justify-center transition-colors ml-1"
+            >
+              <span className="material-symbols-outlined text-[15px]">
+                {isSlidePlaying ? 'pause' : 'play_arrow'}
+              </span>
+            </button>
+          </div>
+
+          {/* Right: Actions, Gallery Manager Modal, Reset Button, Sound & Clock */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Open Gallery Manager Button */}
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setShowGalleryModal(true);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-[#dc2626] to-[#b91c1c] hover:from-[#ef4444] hover:to-[#dc2626] text-white text-xs font-bold transition-all shadow-md shadow-red-950/40 border border-red-400/30"
+              title="Subir imágenes desde mi galería o cambiar fondos"
+            >
+              <span className="material-symbols-outlined text-[17px]">photo_library</span>
+              <span className="hidden sm:inline">Mi Galería / Fondos</span>
+            </button>
+
+            {/* Quick Reset Defaults Button */}
+            <button
+              type="button"
+              onClick={handleQuickResetDefaults}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#232a3a]/90 hover:bg-[#323949] text-[#f59e0b] hover:text-amber-300 text-xs font-semibold transition-colors border border-[#f59e0b]/30"
+              title="Restablecer imágenes por defecto del local de accesorios"
+            >
+              <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+              <span className="hidden md:inline">Por Defecto</span>
+            </button>
+
+            {/* Clean Showcase Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setIsVitrinaCleanMode(!isVitrinaCleanMode);
+              }}
+              className={`p-1.5 rounded-xl transition-colors border ${
+                isVitrinaCleanMode
+                  ? 'bg-[#10b981] text-white border-emerald-400'
+                  : 'bg-[#232a3a]/90 text-[#e6bdb8] hover:text-white border-white/10'
+              }`}
+              title={isVitrinaCleanMode ? 'Mostrar teclado PIN' : 'Modo vitrina limpia (ocultar teclado)'}
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {isVitrinaCleanMode ? 'dialpad' : 'visibility'}
+              </span>
+            </button>
+
+            {/* Sound Toggle */}
+            <button
+              type="button"
               onClick={onToggleSound}
               title={soundEnabled ? 'Silenciar sonidos POS' : 'Activar sonidos POS'}
-              className="p-1.5 rounded-lg bg-[#232a3a]/80 text-[#dce2f7]/70 hover:text-white transition-colors"
+              className="p-1.5 rounded-xl bg-[#232a3a]/90 text-[#e6bdb8] hover:text-white transition-colors border border-white/10"
             >
               <span className="material-symbols-outlined text-[18px]">
                 {soundEnabled ? 'volume_up' : 'volume_off'}
               </span>
             </button>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#232a3a]/80">
-              <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse"></span>
-              <span className="font-mono text-[11px] text-[#e6bdb8]">SUPABASE OK</span>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-[#ffb4ab] flex items-center justify-center text-[#690005]">
-              <span className="material-symbols-outlined text-[18px]">person</span>
+
+            {/* Time Badge */}
+            <div className="hidden xs:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#0c1322]/80 border border-white/10 text-[#e6bdb8] font-mono text-[11px]">
+              <span className="material-symbols-outlined text-[14px] text-[#90cdff]">schedule</span>
+              <span>{currentTime}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="w-full max-w-md px-4 pt-20 flex flex-col relative z-10 space-y-3.5">
-        {/* Ambient Security Glow Mesh */}
-        <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 w-80 h-80 bg-[#dc2626]/12 rounded-full blur-3xl"></div>
-
-        {/* 1. Security Status & Telemetry */}
-        <div className="flex flex-col space-y-1.5">
-          <div className="flex items-center justify-between">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#dc2626]/20 text-[#ef4444] shadow-sm">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ef4444] opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#ef4444]"></span>
-              </span>
-              <span className="text-[11px] tracking-wide uppercase font-semibold">Terminal POS-01 Bloqueada</span>
+      {/* 3. CENTER CONTENT: PIN Terminal Card OR Full Vitrina Mode */}
+      <main className="relative z-10 w-full flex-1 flex flex-col items-center justify-center px-4 py-4 sm:py-6">
+        {isVitrinaCleanMode ? (
+          /* Clean Showcase View: Maximizes view of the accessory store images */
+          <div
+            onClick={() => setIsVitrinaCleanMode(false)}
+            className="flex flex-col items-center justify-center text-center p-6 sm:p-10 rounded-3xl bg-[#070e1d]/70 backdrop-blur-md border border-white/15 shadow-2xl cursor-pointer max-w-lg animate-fadeIn group hover:border-[#ef4444]/60 transition-all"
+          >
+            <div className="w-16 h-16 rounded-2xl bg-[#dc2626]/20 text-[#ef4444] flex items-center justify-center mb-3 group-hover:scale-110 transition-transform shadow-inner">
+              <span className="material-symbols-outlined text-[36px]">storefront</span>
             </div>
-            <div className="flex items-center gap-1 text-[#e6bdb8] font-mono text-[12px]">
-              <span className="material-symbols-outlined text-[15px] text-[#90cdff]">lock_clock</span>
-              <span>{currentTime || '18:16:21 COT'}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-[#e6bdb8] bg-[#141b2b] px-2.5 py-1.5 rounded-lg border border-[#374151]/20">
-            <div className="flex items-center gap-1.5 font-mono text-[12px]">
-              <span className="material-symbols-outlined text-[15px] text-[#10b981]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                cloud_done
-              </span>
-              <span>Supabase SSL 256-bit</span>
-            </div>
-            <div className="flex items-center gap-1.5 font-mono text-[12px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]"></span>
-              <span>Térmica 58mm en reposo</span>
-            </div>
-          </div>
-
-          {/* Contextual Notice */}
-          <div className="flex items-start gap-2 px-2.5 py-1.5 rounded-lg bg-[#191f2f] text-[#e6bdb8] border border-[#374151]/20">
-            <span className="material-symbols-outlined text-[16px] text-[#ffdad6] mt-0.5">timer_pause</span>
-            <p className="text-[12px] leading-tight text-[#e6bdb8]">
-              Bloqueo por inactividad (3 min). Las transacciones en curso se mantuvieron en memoria segura.
+            <h2 className="text-xl sm:text-2xl font-bold text-white mb-1 tracking-tight">
+              {currentImage?.title}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#e6bdb8] mb-4">
+              {currentDateStr} • {currentTime}
             </p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#dc2626] text-white text-xs font-bold shadow-lg shadow-red-950/50">
+              <span className="material-symbols-outlined text-[18px]">lock_open</span>
+              <span>Tocar para ingresar PIN de desbloqueo</span>
+            </div>
+            <span className="text-[11px] text-[#adc6ff] mt-3">
+              Cajero en turno: <strong>{currentCashier.name}</strong> ({currentCashier.role})
+            </span>
           </div>
-        </div>
+        ) : (
+          /* Sleek Glassmorphic PIN Unlock Card */
+          <div className="w-full max-w-[410px] bg-[#121927]/90 backdrop-blur-2xl rounded-3xl p-4 sm:p-5 shadow-[0_20px_60px_rgba(0,0,0,0.8)] border border-white/15 flex flex-col space-y-3 relative animate-fadeIn">
+            {/* Ambient Red Glow Behind Pad */}
+            <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 w-48 h-48 bg-[#dc2626]/20 rounded-full blur-3xl" />
 
-        {/* 2. Cashier Active Card + Quick Operator Switch */}
-        <div className="relative bg-[#191f2f] p-3 rounded-xl shadow-md border border-[#374151]/40">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              {/* Avatar with indicator */}
-              <div className="relative w-12 h-12 rounded-xl bg-[#232a3a] overflow-hidden shadow-inner flex items-center justify-center border border-[#374151]/50">
-                <img
-                  src={currentCashier.avatar}
-                  alt={currentCashier.name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-                <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#10b981] ring-2 ring-[#191f2f]"></span>
+            {/* Lock Status Header */}
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#dc2626]/25 text-[#ff8080] border border-[#dc2626]/40">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ef4444] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#ef4444]"></span>
+                </span>
+                <span className="text-[10px] tracking-wide uppercase font-bold">Terminal en Bloqueo</span>
               </div>
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[17px] font-bold text-[#dce2f7] truncate">{currentCashier.name}</span>
-                  <span className="font-mono text-[11px] text-[#90cdff] font-semibold px-1.5 py-0.5 rounded bg-[#0078b2]/25">
-                    {currentCashier.code}
+
+              <div className="flex items-center gap-1 text-[#e6bdb8] font-mono text-[11px]">
+                <span className="material-symbols-outlined text-[14px] text-[#90cdff]">lock_clock</span>
+                <span>{currentTime || 'COT'}</span>
+              </div>
+            </div>
+
+            {/* Cashier Badge Card + Switch Operator */}
+            <div className="relative bg-[#192235]/90 p-2.5 rounded-2xl border border-white/10 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="relative w-11 h-11 rounded-xl bg-[#232a3a] overflow-hidden shadow-inner flex items-center justify-center border border-white/10">
+                    <img
+                      src={currentCashier.avatar}
+                      alt={currentCashier.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10b981] ring-2 ring-[#192235]"></span>
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[15px] font-bold text-white truncate">{currentCashier.name}</span>
+                      <span className="font-mono text-[10px] text-[#90cdff] font-semibold px-1.5 py-0.2 rounded bg-[#0078b2]/30 border border-[#0078b2]/40">
+                        {currentCashier.code}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-[#e6bdb8] truncate">{currentCashier.role}</span>
+                  </div>
+                </div>
+
+                {/* Operator switch button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    posAudio.playKeyClick();
+                    setShowSwitchPanel(!showSwitchPanel);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-[#adc6ff] hover:text-white transition-colors border border-white/10 text-xs font-semibold"
+                >
+                  <span className="material-symbols-outlined text-[16px]">sync_alt</span>
+                  <span>Cambiar</span>
+                </button>
+              </div>
+
+              {/* Drawer Cash & Ticket Metrics */}
+              <div className="mt-2 pt-1.5 grid grid-cols-2 gap-2 bg-[#0c1322]/80 p-2 rounded-xl font-mono text-[11px] border border-white/5">
+                <div className="flex flex-col">
+                  <span className="text-[#e6bdb8] text-[10px] font-sans">Efectivo en Gaveta</span>
+                  <span className="text-[#10b981] font-bold text-[12px]">
+                    {formatCOP(currentCashier.drawerCash)}
                   </span>
                 </div>
-                <span className="text-[11px] text-[#e6bdb8] truncate">{currentCashier.role}</span>
+                <div className="flex flex-col text-right">
+                  <span className="text-[#e6bdb8] text-[10px] font-sans">Turno Activo</span>
+                  <span className="text-white font-semibold text-[12px]">
+                    {currentCashier.completedTickets} tickets
+                  </span>
+                </div>
               </div>
-            </div>
 
-            {/* Operator switch button */}
-            <button
-              type="button"
-              onClick={() => {
-                posAudio.playKeyClick();
-                setShowSwitchPanel(!showSwitchPanel);
-              }}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#232a3a] active:bg-[#323949] text-[#adc6ff] hover:text-[#e6ecff] transition-colors shadow-sm border border-[#374151]/30"
-            >
-              <span className="material-symbols-outlined text-[18px]">sync_alt</span>
-              <span className="text-[11px] font-semibold">Cambiar</span>
-            </button>
-          </div>
-
-          {/* Shift Metrics */}
-          <div className="mt-2.5 pt-1.5 grid grid-cols-2 gap-2 bg-[#141b2b] p-2.5 rounded-lg font-mono text-[12px] border border-[#374151]/30">
-            <div className="flex flex-col">
-              <span className="text-[#e6bdb8] text-[11px] font-sans">Efectivo en Gaveta</span>
-              <span className="text-[#10b981] font-semibold tracking-tight text-[13px]">
-                {formatCOP(currentCashier.drawerCash)}
-              </span>
-            </div>
-            <div className="flex flex-col text-right">
-              <span className="text-[#e6bdb8] text-[11px] font-sans">Tickets de Turno</span>
-              <span className="text-[#dce2f7] font-semibold text-[13px]">
-                {currentCashier.completedTickets} completados
-              </span>
-            </div>
-          </div>
-
-          {/* Drawer to switch cashier */}
-          {showSwitchPanel && (
-            <div className="mt-2.5 pt-2 flex flex-col space-y-1.5 bg-[#070e1d] p-2.5 rounded-lg border border-[#374151]/50 animate-fadeIn">
-              <span className="text-[11px] text-[#e6bdb8] uppercase tracking-wider font-semibold">
-                Selecciona el operador de relevo:
-              </span>
-              {cashiers.map((cashier) => {
-                const isActive = cashier.id === currentCashier.id;
-                return (
-                  <button
-                    key={cashier.id}
-                    type="button"
-                    onClick={() => {
-                      posAudio.playKeyClick();
-                      onSwitchCashier(cashier);
-                      setShowSwitchPanel(false);
-                      setPin('');
-                      setFeedbackStatus('normal');
-                      setFeedback(`Operador cambiado a ${cashier.name}. Ingresa PIN.`);
-                    }}
-                    className={`flex items-center justify-between p-2 rounded-lg text-left transition-colors ${
-                      isActive
-                        ? 'bg-[#232a3a] border border-[#dc2626]/40'
-                        : 'bg-[#191f2f] hover:bg-[#232a3a] border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold ${
+              {/* Switch cashier drawer */}
+              {showSwitchPanel && (
+                <div className="mt-2 pt-2 flex flex-col space-y-1 bg-[#0c1322] p-2 rounded-xl border border-white/10 animate-fadeIn">
+                  <span className="text-[10px] text-[#e6bdb8] uppercase tracking-wider font-bold mb-1">
+                    Selecciona operador de relevo:
+                  </span>
+                  {cashiers.map((cashier) => {
+                    const isActive = cashier.id === currentCashier.id;
+                    return (
+                      <button
+                        key={cashier.id}
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          onSwitchCashier(cashier);
+                          setShowSwitchPanel(false);
+                          setPin('');
+                          setFeedbackStatus('normal');
+                          setFeedback(`Operador cambiado a ${cashier.name}. Ingresa PIN.`);
+                        }}
+                        className={`flex items-center justify-between p-1.5 rounded-lg text-left transition-colors ${
                           isActive
-                            ? 'bg-[#ef4444]/20 text-[#ef4444]'
-                            : cashier.isMaster
-                            ? 'bg-[#f59e0b]/20 text-[#f59e0b]'
-                            : 'bg-[#adc6ff]/20 text-[#adc6ff]'
+                            ? 'bg-[#232a3a] border border-[#dc2626]/50'
+                            : 'bg-[#192235]/60 hover:bg-[#232a3a] border border-transparent'
                         }`}
                       >
-                        {cashier.initials}
-                      </span>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-[#dce2f7]">
-                          {cashier.name} {isActive && '(Activo)'}
-                        </span>
-                        <span className="text-[11px] text-[#e6bdb8]">{cashier.role}</span>
-                      </div>
-                    </div>
-                    {isActive ? (
-                      <span className="material-symbols-outlined text-[#10b981] text-[18px]">check_circle</span>
-                    ) : (
-                      <span className="material-symbols-outlined text-[#e6bdb8] text-[18px]">
-                        {cashier.isMaster ? 'shield_person' : 'lock'}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-[10px] font-bold ${
+                              isActive
+                                ? 'bg-[#ef4444]/25 text-[#ef4444]'
+                                : cashier.isMaster
+                                ? 'bg-[#f59e0b]/25 text-[#f59e0b]'
+                                : 'bg-[#adc6ff]/25 text-[#adc6ff]'
+                            }`}
+                          >
+                            {cashier.initials}
+                          </span>
+                          <span className="text-xs font-semibold text-white">
+                            {cashier.name} {isActive && '(Activo)'}
+                          </span>
+                        </div>
+                        {isActive ? (
+                          <span className="material-symbols-outlined text-[#10b981] text-[16px]">check_circle</span>
+                        ) : (
+                          <span className="material-symbols-outlined text-[#e6bdb8] text-[16px]">lock</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
+            {/* PIN Indicator Dots */}
+            <div className="flex flex-col items-center justify-center pt-0.5 space-y-1 text-center">
+              <span className="text-xs font-medium text-[#e6bdb8]">
+                Ingresa tu PIN de 4 dígitos para reanudar
+              </span>
+
+              {/* 4 PIN Dots */}
+              <div className={`flex items-center gap-3.5 py-1.5 ${isShaking ? 'animate-shake' : ''}`}>
+                {[0, 1, 2, 3].map((idx) => {
+                  const isFilled = idx < pin.length;
+                  const isSuccess = feedbackStatus === 'success';
+                  return (
+                    <div
+                      key={idx}
+                      className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${
+                        isSuccess
+                          ? 'bg-[#10b981] shadow-[0_0_12px_rgba(16,185,129,0.9)] scale-110'
+                          : isFilled
+                          ? 'bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.8)] scale-110 pin-active-pulse'
+                          : 'bg-[#2e3545] border border-white/10'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+
+              <p
+                className={`text-[11px] font-mono transition-colors ${
+                  feedbackStatus === 'success'
+                    ? 'text-[#10b981] font-bold'
+                    : feedbackStatus === 'error'
+                    ? 'text-[#ef4444] font-bold'
+                    : feedbackStatus === 'verifying'
+                    ? 'text-[#90cdff]'
+                    : 'text-[#e6bdb8]'
+                }`}
+              >
+                {feedback}
+              </p>
+            </div>
+
+            {/* 3x4 POS Keypad */}
+            <div className="grid grid-cols-3 gap-1.5 w-full select-none">
+              {[
+                { num: '1', letters: '_' },
+                { num: '2', letters: 'ABC' },
+                { num: '3', letters: 'DEF' },
+                { num: '4', letters: 'GHI' },
+                { num: '5', letters: 'JKL' },
+                { num: '6', letters: 'MNO' },
+                { num: '7', letters: 'PQRS' },
+                { num: '8', letters: 'TUV' },
+                { num: '9', letters: 'WXYZ' },
+              ].map(({ num, letters }) => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => handleKey(num)}
+                  className="h-12 rounded-xl bg-[#192235]/90 hover:bg-[#232e45] active:bg-[#dc2626] active:text-white transition-colors flex flex-col items-center justify-center shadow-sm border border-white/10"
+                >
+                  <span className="font-mono-display text-[22px] leading-none text-white font-bold">{num}</span>
+                  <span className="text-[9px] text-[#e6bdb8] tracking-widest mt-0.5">{letters}</span>
+                </button>
+              ))}
+
+              {/* NFC Quick Button */}
+              <button
+                type="button"
+                onClick={handleOpenNfcModal}
+                title="Lector de Tarjeta NFC"
+                className="h-12 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#0078b2] text-[#90cdff] transition-colors flex flex-col items-center justify-center shadow-sm border border-white/10"
+              >
+                <span className="material-symbols-outlined text-[20px] text-[#90cdff]">contactless</span>
+                <span className="text-[8px] uppercase tracking-wider font-bold text-[#adc6ff]">NFC</span>
+              </button>
+
+              {/* 0 */}
+              <button
+                type="button"
+                onClick={() => handleKey('0')}
+                className="h-12 rounded-xl bg-[#192235]/90 hover:bg-[#232e45] active:bg-[#dc2626] active:text-white transition-colors flex flex-col items-center justify-center shadow-sm border border-white/10"
+              >
+                <span className="font-mono-display text-[22px] leading-none text-white font-bold">0</span>
+                <span className="text-[9px] text-[#e6bdb8] tracking-widest mt-0.5">+</span>
+              </button>
+
+              {/* Backspace */}
+              <button
+                type="button"
+                onClick={handleBackspace}
+                className="h-12 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#dc2626] text-[#e6bdb8] hover:text-white transition-colors flex flex-col items-center justify-center shadow-sm border border-white/10"
+              >
+                <span className="material-symbols-outlined text-[20px]">backspace</span>
+                <span className="text-[8px] uppercase tracking-wider text-[#e6bdb8]">Borrar</span>
+              </button>
+            </div>
+
+            {/* Bottom Actions: Supervisor Master, NFC & Emergency Shift Close */}
+            <div className="flex flex-col space-y-1.5 pt-0.5">
               <button
                 type="button"
                 onClick={() => {
                   posAudio.playKeyClick();
-                  setPin('');
-                  setFeedbackStatus('normal');
-                  setFeedback('Sesión de operador restablecida. Ingresa nuevo PIN.');
-                  setShowSwitchPanel(false);
+                  setShowSupervisorModal(true);
                 }}
-                className="w-full mt-1.5 py-1.5 px-2 rounded-lg bg-[#dc2626]/20 hover:bg-[#dc2626]/30 text-[#ef4444] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors border border-[#dc2626]/30"
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#dc2626] hover:bg-[#ef4444] text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-red-950/40"
               >
-                <span className="material-symbols-outlined text-[15px]">logout</span>
-                <span>Restablecer Entrada de PIN</span>
+                <span className="material-symbols-outlined text-[17px]">admin_panel_settings</span>
+                <span>Acceso Supervisor / Llave Maestra</span>
               </button>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleOpenNfcModal}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-[#192235]/90 text-white hover:bg-[#232a3a] border border-white/10 transition-colors text-xs font-medium"
+                >
+                  <span className="material-symbols-outlined text-[#10b981] text-[16px]">contactless</span>
+                  <span>Tarjeta NFC</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    posAudio.playKeyClick();
+                    onEmergencyShiftClose();
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl bg-[#232a3a] text-[#e6bdb8] hover:text-[#ef4444] border border-white/10 transition-colors text-xs font-medium"
+                >
+                  <span className="material-symbols-outlined text-[#f59e0b] text-[16px]">event_busy</span>
+                  <span>Cierre Urgente</span>
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </main>
 
-        {/* 3. Secure PIN Indicator */}
-        <div className="flex flex-col items-center justify-center py-1 space-y-1 text-center">
-          <div className="flex items-center gap-1.5 text-[#e6bdb8]">
-            <span className="material-symbols-outlined text-[18px] text-[#dc2626]">pin</span>
-            <span className="text-[13px] font-medium">Ingresa tu PIN de 4 dígitos para reanudar</span>
+      {/* 4. BOTTOM BAR: Gallery Thumbnail Dots & Store Indicator */}
+      <footer className="relative z-20 w-full px-4 py-2 bg-gradient-to-t from-[#070e1d] via-[#070e1d]/80 to-transparent">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          {/* Image Dots & Title */}
+          <div className="flex items-center gap-2 overflow-x-auto max-w-full py-1">
+            <span className="text-[11px] text-[#e6bdb8] font-medium hidden sm:inline">
+              Galería Tienda:
+            </span>
+            <div className="flex items-center gap-1.5">
+              {images.map((img, idx) => {
+                const isActive = idx === currentImageIndex;
+                return (
+                  <button
+                    key={img.id}
+                    type="button"
+                    onClick={() => {
+                      posAudio.playKeyClick();
+                      setCurrentImageIndex(idx);
+                    }}
+                    title={img.title}
+                    className={`transition-all rounded-full flex items-center justify-center ${
+                      isActive
+                        ? 'w-7 h-3 bg-[#dc2626] ring-2 ring-red-400/50'
+                        : 'w-3 h-3 bg-white/30 hover:bg-white/60'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+            <span className="text-[11px] text-[#adc6ff] font-medium truncate max-w-[200px]">
+              {currentImage?.title}
+            </span>
           </div>
 
-          {/* 4 PIN Dots */}
-          <div className={`flex items-center gap-4 py-2 ${isShaking ? 'animate-shake' : ''}`}>
-            {[0, 1, 2, 3].map((idx) => {
-              const isFilled = idx < pin.length;
-              const isSuccess = feedbackStatus === 'success';
-              return (
-                <div
-                  key={idx}
-                  className={`w-4 h-4 rounded-full transition-all duration-200 ${
-                    isSuccess
-                      ? 'bg-[#10b981] shadow-[0_0_12px_rgba(16,185,129,0.8)] scale-110'
-                      : isFilled
-                      ? 'bg-[#ef4444] shadow-[0_0_12px_rgba(239,68,68,0.7)] scale-110 pin-active-pulse'
-                      : 'bg-[#2e3545]'
-                  }`}
-                />
-              );
-            })}
-          </div>
-
-          <p
-            className={`text-[12px] font-mono transition-colors ${
-              feedbackStatus === 'success'
-                ? 'text-[#10b981] font-semibold'
-                : feedbackStatus === 'error'
-                ? 'text-[#ef4444] font-semibold'
-                : feedbackStatus === 'verifying'
-                ? 'text-[#90cdff]'
-                : 'text-[#e6bdb8]'
-            }`}
-          >
-            {feedback}
-          </p>
-        </div>
-
-        {/* 4. POS Ergonomic Numeric Keypad (3x4) */}
-        <div className="grid grid-cols-3 gap-2 w-full max-w-sm mx-auto select-none">
-          {[
-            { num: '1', letters: '_' },
-            { num: '2', letters: 'ABC' },
-            { num: '3', letters: 'DEF' },
-            { num: '4', letters: 'GHI' },
-            { num: '5', letters: 'JKL' },
-            { num: '6', letters: 'MNO' },
-            { num: '7', letters: 'PQRS' },
-            { num: '8', letters: 'TUV' },
-            { num: '9', letters: 'WXYZ' },
-          ].map(({ num, letters }) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => handleKey(num)}
-              className="h-14 rounded-xl bg-[#191f2f] hover:bg-[#232a3a] active:bg-[#dc2626] active:text-[#fff6f5] transition-colors flex flex-col items-center justify-center shadow-sm border border-[#374151]/40"
-            >
-              <span className="font-mono-display text-[26px] leading-none text-[#dce2f7]">{num}</span>
-              <span className="text-[10px] text-[#e6bdb8] tracking-widest mt-0.5">{letters}</span>
-            </button>
-          ))}
-
-          {/* NFC Quick Button replacing former fingerprint button */}
-          <button
-            type="button"
-            onClick={handleOpenNfcModal}
-            title="Lector de Tarjeta NFC"
-            className="h-14 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#0078b2] active:text-[#e6ecff] transition-colors flex flex-col items-center justify-center text-[#90cdff] shadow-sm border border-[#374151]/40"
-          >
-            <span className="material-symbols-outlined text-[24px] text-[#90cdff]">contactless</span>
-            <span className="text-[9px] uppercase tracking-wider font-semibold text-[#adc6ff]">NFC</span>
-          </button>
-
-          {/* 0 */}
-          <button
-            type="button"
-            onClick={() => handleKey('0')}
-            className="h-14 rounded-xl bg-[#191f2f] hover:bg-[#232a3a] active:bg-[#dc2626] active:text-[#fff6f5] transition-colors flex flex-col items-center justify-center shadow-sm border border-[#374151]/40"
-          >
-            <span className="font-mono-display text-[26px] leading-none text-[#dce2f7]">0</span>
-            <span className="text-[10px] text-[#e6bdb8] tracking-widest mt-0.5">+</span>
-          </button>
-
-          {/* Backspace */}
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-14 rounded-xl bg-[#232a3a] hover:bg-[#323949] active:bg-[#dc2626] active:text-[#fff6f5] transition-colors flex flex-col items-center justify-center text-[#e6bdb8] hover:text-[#dce2f7] shadow-sm border border-[#374151]/40"
-          >
-            <span className="material-symbols-outlined text-[24px]">backspace</span>
-            <span className="text-[9px] uppercase tracking-wider text-[#e6bdb8]">Borrar</span>
-          </button>
-        </div>
-
-        {/* 5. Alternative Unlock Options & Privileges */}
-        <div className="flex flex-col space-y-2 pt-1">
-          {/* Acceso Supervisor / Desbloqueo Maestro */}
-          <button
-            type="button"
-            onClick={() => {
-              posAudio.playKeyClick();
-              setShowSupervisorModal(true);
-            }}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#dc2626] text-[#fff6f5] hover:bg-[#ef4444] active:scale-[0.99] text-[13px] font-semibold tracking-wide uppercase transition-all shadow-md shadow-[#dc2626]/20"
-          >
-            <span className="material-symbols-outlined text-[20px]">admin_panel_settings</span>
-            <span>Acceso Supervisor / Desbloqueo Maestro</span>
-          </button>
-
-          {/* Secondary row: Pure NFC card authentication & emergency close */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleOpenNfcModal}
-              className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-[#191f2f] text-[#dce2f7] hover:bg-[#232a3a] border border-[#374151]/30 transition-colors text-center group"
-            >
-              <span className="material-symbols-outlined text-[#10b981] group-hover:scale-110 transition-transform text-[18px]">
-                contactless
-              </span>
-              <span className="text-[12px] font-medium">Lector Tarjeta NFC</span>
-            </button>
-
+          {/* Quick info and Gallery shortcut */}
+          <div className="flex items-center gap-3 text-[11px] text-[#e6bdb8] font-mono">
             <button
               type="button"
               onClick={() => {
                 posAudio.playKeyClick();
-                onEmergencyShiftClose();
+                setShowGalleryModal(true);
               }}
-              className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl bg-[#232a3a] text-[#e6bdb8] hover:text-[#ef4444] border border-[#374151]/30 transition-colors text-center"
+              className="text-[#adc6ff] hover:text-white underline flex items-center gap-1 font-sans font-semibold"
             >
-              <span className="material-symbols-outlined text-[18px] text-[#f59e0b]">event_busy</span>
-              <span className="text-[12px] font-medium">Cierre Urgente</span>
+              <span className="material-symbols-outlined text-[14px]">edit</span>
+              <span>Cambiar Fotos del Local</span>
             </button>
+            <span className="hidden md:inline">•</span>
+            <span className="hidden md:inline">Kev Nay Retail Engine v4.3</span>
           </div>
         </div>
+      </footer>
 
-        {/* Terminal Telemetry Footer */}
-        <div className="flex items-center justify-between pt-1 text-[#e6bdb8] text-[11px] font-mono">
-          <div className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]"></span>
-            <span>Kev Nay Engine v4.2.1-prod</span>
+      {/* 5. FLOATING LOCKSCREEN TOAST NOTIFICATION */}
+      {lockToast && (
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div
+            className={`px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-semibold backdrop-blur-xl border ${
+              lockToast.type === 'success'
+                ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50'
+                : 'bg-[#192235]/95 text-white border-white/20'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px] text-[#10b981]">check_circle</span>
+            <span>{lockToast.message}</span>
           </div>
-          <span>ID Caja: KNY-BOG-0104</span>
         </div>
-      </main>
+      )}
 
-      {/* NFC Card Scanning & Authentication Modal */}
+      {/* 6. GALLERY & CUSTOMIZATION MODAL */}
+      <LockScreenGalleryModal
+        isOpen={showGalleryModal}
+        onClose={() => setShowGalleryModal(false)}
+        images={images}
+        currentIndex={currentImageIndex}
+        onImagesChange={(newImages, newIndex) => {
+          setImages(newImages);
+          if (typeof newIndex === 'number') {
+            setCurrentImageIndex(newIndex);
+          }
+        }}
+        dimmerLevel={dimmerLevel}
+        onDimmerChange={(level) => setDimmerLevel(level)}
+        slideInterval={slideInterval}
+        onIntervalChange={(sec) => setSlideInterval(sec)}
+        onShowToast={showToast}
+      />
+
+      {/* 7. NFC MODAL */}
       {showNfcModal && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#191f2f] w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 border border-[#374151]/60">
-            {/* Modal Header */}
+        <div className="fixed inset-0 z-50 bg-[#070e1d]/85 backdrop-blur-md flex items-end sm:items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#141b2b] w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 border border-[#374151]/70 text-[#dce2f7]">
             <div className="flex items-center justify-between border-b border-[#374151]/40 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#0078b2]/20 flex items-center justify-center text-[#90cdff]">
                   <span className="material-symbols-outlined text-[22px]">contactless</span>
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-[#dce2f7] leading-tight">Lector de Proximidad NFC</h3>
-                  <span className="text-[11px] font-mono text-[#adc6ff]">ISO/IEC 14443 Type A • Mifare POS</span>
+                  <h3 className="text-base font-bold text-white leading-tight">Lector de Proximidad NFC</h3>
+                  <span className="text-[11px] font-mono text-[#adc6ff]">ISO/IEC 14443 • Mifare POS Retail</span>
                 </div>
               </div>
               <button
@@ -667,29 +933,23 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               </button>
             </div>
 
-            {/* Visual NFC Contactless Field Radar */}
-            <div className="flex flex-col items-center justify-center py-3 bg-[#141b2b] rounded-xl border border-[#374151]/40 relative overflow-hidden">
-              <div className="relative w-28 h-28 flex items-center justify-center my-1">
-                {/* Rippling radio waves */}
+            <div className="flex flex-col items-center justify-center py-3 bg-[#0c1322] rounded-xl border border-[#374151]/40 relative overflow-hidden">
+              <div className="relative w-24 h-24 flex items-center justify-center my-1">
                 <span className="absolute inset-0 rounded-full border-2 border-[#10b981] animate-ping opacity-40"></span>
                 <span className="absolute inset-2 rounded-full border border-[#90cdff]/60 animate-pulse"></span>
-                <span className="absolute inset-6 rounded-full bg-[#0078b2]/15"></span>
-                <div className="relative z-10 w-14 h-14 rounded-full bg-[#232a3a] flex items-center justify-center shadow-lg border border-[#374151]">
-                  <span className="material-symbols-outlined text-[32px] text-[#10b981]">contactless</span>
+                <div className="relative z-10 w-12 h-12 rounded-full bg-[#232a3a] flex items-center justify-center shadow-lg border border-[#374151]">
+                  <span className="material-symbols-outlined text-[28px] text-[#10b981]">contactless</span>
                 </div>
               </div>
 
-              <span className="text-xs font-semibold text-[#dce2f7] mt-1">
+              <span className="text-xs font-semibold text-white mt-1">
                 Acerca la tarjeta o credencial NFC al sensor
               </span>
-              <span className="text-[11px] font-mono text-[#e6bdb8] mt-0.5">
-                {webNfcSupported
-                  ? '📡 Web NFC de hardware activo en este dispositivo'
-                  : '💻 En escucha de lector USB/Bluetooth o emulación directa'}
+              <span className="text-[10px] font-mono text-[#e6bdb8] mt-0.5">
+                {webNfcSupported ? '📡 Web NFC de hardware activo' : '💻 En escucha de emulación o lector USB'}
               </span>
             </div>
 
-            {/* Detected Other Cashier Prompt */}
             {detectedOtherCashier && (
               <div className="p-3 bg-[#232a3a] rounded-xl border border-[#adc6ff]/40 flex flex-col space-y-2 animate-fadeIn">
                 <div className="flex items-center gap-2">
@@ -729,7 +989,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               </div>
             )}
 
-            {/* Status alerts */}
             {nfcFeedback && !detectedOtherCashier && (
               <div className="p-2.5 rounded-lg bg-[#10b981]/15 border border-[#10b981]/40 text-[#10b981] text-xs font-medium flex items-center gap-2 animate-fadeIn">
                 <span className="material-symbols-outlined text-[18px]">verified</span>
@@ -744,21 +1003,19 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               </div>
             )}
 
-            {/* Quick Test Badges for instant demo and verification */}
             <div className="flex flex-col space-y-1.5">
-              <span className="text-[11px] font-semibold text-[#e6bdb8] uppercase tracking-wider">
-                Tarjetas registradas en el sistema (toca para simular pase):
+              <span className="text-[10px] font-semibold text-[#e6bdb8] uppercase tracking-wider">
+                Tarjetas registradas en el sistema (toca para simular):
               </span>
               <div className="grid grid-cols-2 gap-1.5">
-                {/* Active cashier card */}
                 <button
                   type="button"
                   onClick={() => handleNfcCard(currentCashier.nfcCardId || 'NFC-KN-8842')}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#10b981]/40 text-left transition-colors"
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#0c1322] hover:bg-[#232a3a] border border-[#10b981]/40 text-left transition-colors"
                 >
                   <span className="material-symbols-outlined text-[#10b981] text-[18px]">credit_card</span>
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-bold text-[#dce2f7] truncate">
+                    <span className="text-[11px] font-bold text-white truncate">
                       {currentCashier.name} (Activo)
                     </span>
                     <span className="font-mono text-[9px] text-[#10b981]">
@@ -767,50 +1024,20 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                   </div>
                 </button>
 
-                {/* Master card */}
                 <button
                   type="button"
                   onClick={() => handleNfcCard('NFC-MASTER-0001')}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#f59e0b]/40 text-left transition-colors"
+                  className="flex items-center gap-2 p-2 rounded-lg bg-[#0c1322] hover:bg-[#232a3a] border border-[#f59e0b]/40 text-left transition-colors"
                 >
                   <span className="material-symbols-outlined text-[#f59e0b] text-[18px]">key</span>
                   <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-bold text-[#dce2f7] truncate">
-                      Llave Maestra Admin
-                    </span>
+                    <span className="text-[11px] font-bold text-white truncate">Llave Maestra</span>
                     <span className="font-mono text-[9px] text-[#f59e0b]">NFC-MASTER-0001</span>
-                  </div>
-                </button>
-
-                {/* Other cashier card */}
-                <button
-                  type="button"
-                  onClick={() => handleNfcCard('NFC-LG-5519')}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#374151]/40 text-left transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[#90cdff] text-[18px]">badge</span>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-semibold text-[#dce2f7] truncate">Laura G. (Relevo)</span>
-                    <span className="font-mono text-[9px] text-[#90cdff]">NFC-LG-5519</span>
-                  </div>
-                </button>
-
-                {/* Unauthorized test card to prove security restriction */}
-                <button
-                  type="button"
-                  onClick={() => handleNfcCard('NFC-DESCONOCIDA-99')}
-                  className="flex items-center gap-2 p-2 rounded-lg bg-[#141b2b] hover:bg-[#232a3a] border border-[#dc2626]/40 text-left transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[#ef4444] text-[18px]">block</span>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[11px] font-semibold text-[#ef4444] truncate">Tarjeta No Autorizada</span>
-                    <span className="font-mono text-[9px] text-[#ef4444]/80">NFC-DESCONOCIDA</span>
                   </div>
                 </button>
               </div>
             </div>
 
-            {/* Manual Card UID or USB Scanner Input */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -818,18 +1045,16 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               }}
               className="flex items-center gap-2 pt-1"
             >
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={manualNfcInput}
-                  onChange={(e) => setManualNfcInput(e.target.value)}
-                  placeholder="Escanear o ingresar UID (ej: NFC-KN-8842)"
-                  className="w-full bg-[#141b2b] border border-[#374151] rounded-xl px-3 py-2 text-xs font-mono text-[#dce2f7] placeholder-[#e6bdb8]/50 focus:outline-none focus:border-[#90cdff]"
-                />
-              </div>
+              <input
+                type="text"
+                value={manualNfcInput}
+                onChange={(e) => setManualNfcInput(e.target.value)}
+                placeholder="Escanear o ingresar UID (ej: NFC-KN-8842)"
+                className="w-full bg-[#0c1322] border border-[#374151] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-[#e6bdb8]/50 focus:outline-none focus:border-[#90cdff]"
+              />
               <button
                 type="submit"
-                className="py-2 px-3 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-xs font-semibold text-[#adc6ff] transition-colors border border-[#374151]/40"
+                className="py-2 px-3 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-xs font-semibold text-[#adc6ff] transition-colors border border-[#374151]"
               >
                 Validar
               </button>
@@ -838,14 +1063,14 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         </div>
       )}
 
-      {/* Supervisor Master Unlock Modal */}
+      {/* 8. SUPERVISOR MASTER UNLOCK MODAL */}
       {showSupervisorModal && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#191f2f] w-full max-w-sm rounded-2xl p-4 shadow-2xl flex flex-col space-y-4 border border-[#374151]/60">
+        <div className="fixed inset-0 z-50 bg-[#070e1d]/85 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#141b2b] w-full max-w-sm rounded-2xl p-4 shadow-2xl flex flex-col space-y-3.5 border border-[#374151]/70 text-[#dce2f7]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[24px] text-[#ef4444]">shield</span>
-                <span className="text-lg font-bold text-[#dce2f7]">Llave Maestra</span>
+                <span className="text-base font-bold text-white">Llave Maestra Admin</span>
               </div>
               <button
                 type="button"
@@ -860,12 +1085,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </div>
 
             <p className="text-xs text-[#e6bdb8] leading-relaxed">
-              Ingresa la credencial maestra de supervisor o administrador para desbloquear la terminal sin el PIN del cajero actual.
+              Ingresa el PIN de Administrador (por defecto 9999) para desbloquear la terminal sin el PIN del operador.
             </p>
 
             <form onSubmit={handleSupervisorAuthorize} className="flex flex-col space-y-2.5">
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#070e1d] text-[#dce2f7] font-mono border border-[#374151]/50">
-                <span className="material-symbols-outlined text-[#90cdff] text-[20px]">badge</span>
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0c1322] text-white font-mono border border-[#374151]/60">
+                <span className="material-symbols-outlined text-[#90cdff] text-[18px]">key</span>
                 <input
                   type="password"
                   value={supervisorPin}
@@ -874,8 +1099,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                     setSupervisorError('');
                   }}
                   autoFocus
-                  placeholder="PIN de Supervisor (ej: 9999 o 0000)"
-                  className="bg-transparent border-none outline-none w-full text-[#dce2f7] placeholder-[#e6bdb8]/60 text-sm"
+                  placeholder="PIN Maestro (ej: 9999)"
+                  className="bg-transparent border-none outline-none w-full text-white placeholder-[#e6bdb8]/50 text-sm"
                 />
               </div>
 
@@ -883,20 +1108,20 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 <span className="text-[11px] text-[#ef4444] font-medium">{supervisorError}</span>
               )}
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => {
                     setShowSupervisorModal(false);
                     setSupervisorError('');
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-[#232a3a] text-[#dce2f7] text-xs font-semibold hover:bg-[#323949] transition-colors"
+                  className="flex-1 py-2 rounded-xl bg-[#232a3a] text-white text-xs font-semibold hover:bg-[#323949] transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-[#dc2626] text-[#fff6f5] text-xs font-semibold hover:bg-[#ef4444] transition-colors"
+                  className="flex-1 py-2 rounded-xl bg-[#dc2626] text-white text-xs font-semibold hover:bg-[#ef4444] transition-colors shadow"
                 >
                   Autorizar
                 </button>

@@ -72,16 +72,22 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
   tickets,
   onFinishShiftAndLock,
 }) => {
-  const initialBase = 350000; // Base inicial de apertura de caja
+  const initialBase = cashier.drawerCash > 0 ? 350000 : 0; // Base inicial de apertura de caja (0 si se reinició)
   const shiftTickets = tickets.filter((t) => t.cashierId === cashier.id && t.status === 'completada');
 
   const cashSales = shiftTickets
     .filter((t) => t.paymentMethod === 'efectivo')
     .reduce((acc, t) => acc + t.total, 0);
 
-  const electronicSales = shiftTickets
-    .filter((t) => t.paymentMethod !== 'efectivo')
+  const cardSales = shiftTickets
+    .filter((t) => t.paymentMethod === 'tarjeta')
     .reduce((acc, t) => acc + t.total, 0);
+
+  const qrSales = shiftTickets
+    .filter((t) => t.paymentMethod === 'qr_transfer')
+    .reduce((acc, t) => acc + t.total, 0);
+
+  const electronicSales = cardSales + qrSales;
 
   const totalSales = cashSales + electronicSales;
   const expectedCashInDrawer = initialBase + cashSales;
@@ -93,43 +99,35 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
   const hourlySalesData = useMemo<HourlyDataPoint[]>(() => {
     // Standard shift hours from 13:00 to 19:00
     const hours = ['13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
+    const hasTickets = shiftTickets.length > 0;
 
-    // Baseline historical distribution during Kevin's shift (T-04 daytime)
-    const baseDistribution: { [key: string]: { efectivo: number; electronico: number; tickets: number } } = {
-      '13:00': { efectivo: 85000, electronico: 42000, tickets: 4 },
-      '14:00': { efectivo: 110000, electronico: 65000, tickets: 5 },
-      '15:00': { efectivo: 72000, electronico: 38000, tickets: 3 },
-      '16:00': { efectivo: 95000, electronico: 89000, tickets: 4 },
-      '17:00': { efectivo: 145000, electronico: 118000, tickets: 6 },
-      '18:00': { efectivo: 53000, electronico: 46000, tickets: 2 },
-      '19:00': { efectivo: 0, electronico: 0, tickets: 0 },
-    };
-
-    // Aggregate any newly added tickets from the session
+    // If shift has no tickets (e.g. system was reset to 0), everything is strictly 0
     const dynamicAggregation: { [key: string]: { efectivo: number; electronico: number; tickets: number } } = {};
     hours.forEach((h) => {
       dynamicAggregation[h] = {
-        efectivo: baseDistribution[h]?.efectivo || 0,
-        electronico: baseDistribution[h]?.electronico || 0,
-        tickets: baseDistribution[h]?.tickets || 0,
+        efectivo: 0,
+        electronico: 0,
+        tickets: 0,
       };
     });
 
-    shiftTickets.forEach((t) => {
-      // Extract hour from timestamp e.g. "18:04:12 COT" -> "18:00"
-      const match = t.timestamp.match(/(\d{1,2}):\d{2}/);
-      const hourKey = match ? `${match[1].padStart(2, '0')}:00` : '18:00';
-      if (!dynamicAggregation[hourKey]) {
-        dynamicAggregation[hourKey] = { efectivo: 0, electronico: 0, tickets: 0 };
-      }
+    if (hasTickets) {
+      shiftTickets.forEach((t) => {
+        // Extract hour from timestamp e.g. "18:04:12 COT" -> "18:00"
+        const match = t.timestamp.match(/(\d{1,2}):\d{2}/);
+        const hourKey = match ? `${match[1].padStart(2, '0')}:00` : '18:00';
+        if (!dynamicAggregation[hourKey]) {
+          dynamicAggregation[hourKey] = { efectivo: 0, electronico: 0, tickets: 0 };
+        }
 
-      if (t.paymentMethod === 'efectivo') {
-        dynamicAggregation[hourKey].efectivo += t.total;
-      } else {
-        dynamicAggregation[hourKey].electronico += t.total;
-      }
-      dynamicAggregation[hourKey].tickets += 1;
-    });
+        if (t.paymentMethod === 'efectivo') {
+          dynamicAggregation[hourKey].efectivo += t.total;
+        } else {
+          dynamicAggregation[hourKey].electronico += t.total;
+        }
+        dynamicAggregation[hourKey].tickets += 1;
+      });
+    }
 
     return hours.map((h) => {
       const ef = dynamicAggregation[h]?.efectivo || 0;
@@ -147,28 +145,63 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
   // Peak sales hour computation
   const peakHour = useMemo(() => {
     if (!hourlySalesData.length) return null;
-    return [...hourlySalesData].sort((a, b) => b.totalVentas - a.totalVentas)[0];
+    const sorted = [...hourlySalesData].sort((a, b) => b.totalVentas - a.totalVentas);
+    return sorted[0].totalVentas > 0 ? sorted[0] : null;
   }, [hourlySalesData]);
 
   // Average ticket size
-  const totalShiftTicketsCount = shiftTickets.length > 0 ? shiftTickets.length : 24;
-  const avgTicketValue = totalSales > 0 ? Math.round(totalSales / totalShiftTicketsCount) : 37900;
+  const totalShiftTicketsCount = shiftTickets.length;
+  const avgTicketValue = totalSales > 0 && totalShiftTicketsCount > 0 ? Math.round(totalSales / totalShiftTicketsCount) : 0;
 
-  // Bill denominations count
-  const [denominations, setDenominations] = useState<{ [key: string]: number }>({
-    b100k: 5,
-    b50k: 6,
-    b20k: 4,
-    b10k: 2,
-    b5k: 1,
-    b2k: 2,
-    c1000: 4,
-    c500: 2,
-    c200: 0,
-    c100: 0,
-  });
+  // Bill denominations count (starts with zeros if drawer cash is 0)
+  const isDrawerZero = cashier.drawerCash === 0;
+  const [denominations, setDenominations] = useState<{ [key: string]: number }>(() =>
+    isDrawerZero
+      ? { b100k: 0, b50k: 0, b20k: 0, b10k: 0, b5k: 0, b2k: 0, c1000: 0, c500: 0, c200: 0, c100: 0 }
+      : { b100k: 5, b50k: 6, b20k: 4, b10k: 2, b5k: 1, b2k: 2, c1000: 4, c500: 2, c200: 0, c100: 0 }
+  );
+
+  // Automatically sync denominations to $0 when the system is placed in zero
+  React.useEffect(() => {
+    if (cashier.drawerCash === 0 && tickets.length === 0) {
+      setDenominations({
+        b100k: 0,
+        b50k: 0,
+        b20k: 0,
+        b10k: 0,
+        b5k: 0,
+        b2k: 0,
+        c1000: 0,
+        c500: 0,
+        c200: 0,
+        c100: 0,
+      });
+    }
+  }, [cashier.drawerCash, tickets.length]);
 
   const [showZReceiptModal, setShowZReceiptModal] = useState<boolean>(false);
+  const [showXReceiptModal, setShowXReceiptModal] = useState<boolean>(false);
+  const [printFeedback, setPrintFeedback] = useState<string | null>(null);
+  const [copiedReportText, setCopiedReportText] = useState<boolean>(false);
+
+  // Print Reporte X (58mm Compact Cash Drawer Audit) using Browser Print API
+  const handlePrintReportX = () => {
+    posAudio.playScanBeep();
+    setShowXReceiptModal(true);
+    setPrintFeedback('Preparando vista de impresión térmica 58mm (Reporte X)...');
+
+    // Trigger Browser Print API
+    setTimeout(() => {
+      try {
+        window.print();
+        posAudio.playCashRegisterChime();
+        setPrintFeedback('✓ Reporte X (58mm) enviado a la cola de impresión del navegador');
+        setTimeout(() => setPrintFeedback(null), 4500);
+      } catch (err) {
+        console.warn('Error invoking window.print():', err);
+      }
+    }, 280);
+  };
 
   const denomValues: { [key: string]: number } = {
     b100k: 100000,
@@ -229,7 +262,19 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* BOTÓN OFICIAL: Imprimir Reporte X (58mm) */}
+          <button
+            type="button"
+            onClick={handlePrintReportX}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white border border-[#38bdf8]/50 text-xs font-bold transition-all shadow-md active:scale-95"
+            title="Imprimir Reporte X (Versión térmica compacta de 58mm del arqueo de caja actual)"
+          >
+            <span className="material-symbols-outlined text-[18px]">print</span>
+            <span>Imprimir Reporte X</span>
+            <span className="text-[9px] bg-[#0c4a6e] text-[#bae6fd] px-1.5 py-0.2 rounded font-mono font-bold">58mm</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -255,6 +300,23 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Print Feedback Notification */}
+      {printFeedback && (
+        <div className="p-3 bg-sky-950/80 border border-sky-500/60 rounded-xl text-sky-200 text-xs font-semibold flex items-center justify-between gap-2 shadow-lg animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] text-[#38bdf8]">print</span>
+            <span>{printFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPrintFeedback(null)}
+            className="text-sky-400 hover:text-white"
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+      )}
 
       {/* VISUAL DASHBOARD: RECHARTS HOURLY SALES BAR CHART */}
       <div className="bg-[#191f2f] border border-[#374151]/40 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
@@ -543,14 +605,25 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
 
       {/* Denominations Physical Calculator */}
       <div className="bg-[#191f2f] border border-[#374151]/40 rounded-2xl p-4 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-[#374151]/30">
+        <div className="flex items-center justify-between pb-2 border-b border-[#374151]/30 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[#10b981] text-[20px]">calculate</span>
             <span className="text-xs font-bold text-white uppercase tracking-wider">
               Conteo Detallado por Denominaciones
             </span>
           </div>
-          <span className="text-xs font-mono text-[#e6bdb8]">Moneda Nacional COP</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-[#e6bdb8] hidden sm:inline">Moneda Nacional COP</span>
+            <button
+              type="button"
+              onClick={handlePrintReportX}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0284c7]/20 hover:bg-[#0284c7] text-[#38bdf8] hover:text-white border border-[#38bdf8]/40 text-xs font-semibold transition-all shadow-sm active:scale-95"
+              title="Imprimir arqueo físico de caja actual (Reporte X 58mm)"
+            >
+              <span className="material-symbols-outlined text-[15px]">print</span>
+              <span>Imprimir Reporte X</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
@@ -602,14 +675,14 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
 
       {/* Official Corte Z Thermal Receipt Modal */}
       {showZReceiptModal && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-4 w-full max-w-sm flex flex-col space-y-3 shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-[#374151]/40">
               <span className="text-sm font-bold text-white">Comprobante Oficial Corte Z</span>
               <button
                 type="button"
                 onClick={() => setShowZReceiptModal(false)}
-                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center"
+                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center transition-colors"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
@@ -690,7 +763,7 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 rounded-xl bg-[#dc2626] text-xs font-semibold text-white flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 rounded-xl bg-[#dc2626] text-xs font-semibold text-white flex items-center justify-center gap-1.5 shadow-md active:scale-95"
               >
                 <span className="material-symbols-outlined text-[16px]">print</span>
                 <span>Imprimir Ticket Z</span>
@@ -698,7 +771,225 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowZReceiptModal(false)}
-                className="py-2.5 px-4 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7]"
+                className="py-2.5 px-4 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7] hover:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Official Reporte X (Arqueo Parcial Térmico 58mm) Modal */}
+      {showXReceiptModal && (
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+          <div className="bg-[#191f2f] border border-sky-500/50 rounded-2xl p-4 w-full max-w-sm flex flex-col space-y-3 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-[#374151]/40">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse" />
+                <span className="text-sm font-bold text-white">Reporte X • Arqueo 58mm</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowXReceiptModal(false)}
+                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* 58mm Thermal Receipt Printable Body */}
+            <div
+              id="thermal-report-x-printable"
+              className="bg-white text-black font-mono text-[10px] leading-tight p-3 sm:p-4 rounded shadow-inner border border-gray-200 select-text max-h-[60vh] overflow-y-auto space-y-2"
+            >
+              <div className="text-center pb-2 border-b border-dashed border-gray-400">
+                <p className="font-extrabold text-xs tracking-wider">KEV NAY RETAIL POS</p>
+                <p className="text-[9px]">NIT 901.845.293-4 • RÉGIMEN COMÚN</p>
+                <p className="text-[9px]">Cra. 15 # 85-32, Bogotá D.C.</p>
+                <p className="text-[9px]">Tel: (+57) 314 892 0104</p>
+                <div className="mt-1.5 py-0.5 px-2 bg-gray-100 border border-gray-300 rounded inline-block font-bold text-[11px]">
+                  *** INFORME PARCIAL X (58mm) ***
+                </div>
+                <p className="text-[8px] text-gray-600 mt-1 uppercase font-semibold">
+                  Arqueo de Caja en Vivo • Turno Activo (Sin Cierre)
+                </p>
+              </div>
+
+              <div className="py-1 border-b border-dashed border-gray-400 space-y-0.5 text-[9px]">
+                <div className="flex justify-between">
+                  <span>TERMINAL:</span>
+                  <span className="font-bold">POS-01 (KNY-BOG-0104)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>FECHA / HORA:</span>
+                  <span>{new Date().toLocaleDateString('es-CO')} {new Date().toLocaleTimeString('es-CO')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>CAJERO:</span>
+                  <span className="font-bold">{cashier.name} ({cashier.code})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>ESTADO:</span>
+                  <span className="font-bold text-sky-800">TURNO EN CURSO (ACTIVO)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>TRANSACCIONES:</span>
+                  <span className="font-bold">{shiftTickets.length} ventas</span>
+                </div>
+              </div>
+
+              <div className="py-1 border-b border-dashed border-gray-400 space-y-1">
+                <div className="text-[9px] font-bold text-gray-700">VENTAS POR MEDIO DE PAGO:</div>
+                <div className="flex justify-between">
+                  <span>(+) EFECTIVO:</span>
+                  <span className="font-bold">{formatCOP(cashSales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>(+) TARJETA / DATÁFONO:</span>
+                  <span className="font-bold">{formatCOP(cardSales)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>(+) QR / TRANSFERENCIA:</span>
+                  <span className="font-bold">{formatCOP(qrSales)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] font-extrabold pt-1 border-t border-gray-300">
+                  <span>TOTAL VENTAS:</span>
+                  <span>{formatCOP(totalSales)}</span>
+                </div>
+                <div className="flex justify-between text-[8px] text-gray-500">
+                  <span>TICKET PROMEDIO:</span>
+                  <span>{formatCOP(avgTicketValue)}</span>
+                </div>
+              </div>
+
+              <div className="py-1 border-b border-dashed border-gray-400 space-y-1">
+                <div className="text-[9px] font-bold text-gray-700">ARQUEO DE GAVETA:</div>
+                <div className="flex justify-between">
+                  <span>BASE INICIAL CAJA:</span>
+                  <span>{formatCOP(initialBase)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>(+) INGRESOS EFECTIVO:</span>
+                  <span>{formatCOP(cashSales)}</span>
+                </div>
+                <div className="flex justify-between font-bold pt-0.5 border-t border-dashed border-gray-300">
+                  <span>(=) EFECTIVO ESPERADO:</span>
+                  <span>{formatCOP(expectedCashInDrawer)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>(✓) EFECTIVO CONTADO:</span>
+                  <span>{formatCOP(countedCash)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] font-extrabold pt-1 border-t border-gray-800">
+                  <span>DIFERENCIA:</span>
+                  <span className={difference === 0 ? 'text-black' : difference < 0 ? 'text-red-600' : 'text-emerald-700'}>
+                    {difference === 0
+                      ? '$0 (CUADRADO)'
+                      : difference < 0
+                      ? `-${formatCOP(Math.abs(difference))} (FALTANTE)`
+                      : `+${formatCOP(difference)} (SOBRANTE)`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="py-1 border-b border-dashed border-gray-400 space-y-0.5">
+                <div className="text-[9px] font-bold text-gray-700">DESGLOSE DE DENOMINACIONES:</div>
+                {Object.keys(denomLabels).filter((k) => (denominations[k] || 0) > 0).length > 0 ? (
+                  Object.keys(denomLabels)
+                    .filter((k) => (denominations[k] || 0) > 0)
+                    .map((k) => (
+                      <div key={k} className="flex justify-between text-[9px]">
+                        <span>{denomLabels[k]} ({denominations[k]}x):</span>
+                        <span className="font-bold">{formatCOP((denominations[k] || 0) * (denomValues[k] || 0))}</span>
+                      </div>
+                    ))
+                ) : (
+                  <div className="text-[8px] text-gray-500 italic">Sin conteo físico registrado ($0)</div>
+                )}
+              </div>
+
+              {hourlySalesData.some((h) => h.totalVentas > 0) && (
+                <div className="py-1 border-b border-dashed border-gray-400 space-y-0.5 text-[8px]">
+                  <div className="font-bold text-gray-700">DESGLOSE HORARIO:</div>
+                  {hourlySalesData
+                    .filter((h) => h.totalVentas > 0)
+                    .map((h) => (
+                      <div key={h.hour} className="flex justify-between">
+                        <span>{h.hour} ({h.ticketsCount} tkts):</span>
+                        <span className="font-bold">{formatCOP(h.totalVentas)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              <div className="pt-3 pb-1 space-y-3 text-center text-[8px]">
+                <div className="border-t border-gray-400 pt-1">
+                  <p>FIRMA DEL CAJERO: {cashier.name}</p>
+                  <p className="text-gray-500">C.C. ___________________</p>
+                </div>
+                <div className="border-t border-gray-400 pt-1">
+                  <p>FIRMA DEL SUPERVISOR: AUDITORÍA</p>
+                  <p className="text-gray-500">Verificado en Terminal</p>
+                </div>
+                <div className="pt-1 text-[8px] font-bold text-gray-700">
+                  *** COMPROBANTE DE CONTROL INTERNO • 58MM ***
+                </div>
+                <p className="text-[8px] text-gray-500">Kev Nay Engine v4.2.1-prod</p>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  window.print();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
+                title="Ejecutar API de impresión del navegador (window.print)"
+              >
+                <span className="material-symbols-outlined text-[16px]">print</span>
+                <span>Imprimir Reporte X</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  const summaryText =
+                    `*** INFORME PARCIAL X (58mm) ***\n` +
+                    `TERMINAL: POS-01 • TURNO ACTIVO\n` +
+                    `FECHA: ${new Date().toLocaleDateString('es-CO')} ${new Date().toLocaleTimeString('es-CO')}\n` +
+                    `CAJERO: ${cashier.name} (${cashier.code})\n` +
+                    `TRANSACCIONES: ${shiftTickets.length} ventas\n` +
+                    `--------------------------------\n` +
+                    `VENTAS EFECTIVO: ${formatCOP(cashSales)}\n` +
+                    `VENTAS TARJETA: ${formatCOP(cardSales)}\n` +
+                    `VENTAS QR: ${formatCOP(qrSales)}\n` +
+                    `TOTAL VENTAS: ${formatCOP(totalSales)}\n` +
+                    `TICKET PROMEDIO: ${formatCOP(avgTicketValue)}\n` +
+                    `--------------------------------\n` +
+                    `BASE INICIAL: ${formatCOP(initialBase)}\n` +
+                    `EFECTIVO ESPERADO: ${formatCOP(expectedCashInDrawer)}\n` +
+                    `EFECTIVO CONTADO: ${formatCOP(countedCash)}\n` +
+                    `DIFERENCIA: ${difference === 0 ? '$0 (CUADRADO)' : formatCOP(difference)}\n` +
+                    `--------------------------------\n` +
+                    `KEV NAY POS v4.2.1-prod`;
+                  navigator.clipboard?.writeText(summaryText);
+                  setCopiedReportText(true);
+                  setTimeout(() => setCopiedReportText(false), 2500);
+                }}
+                className="py-2.5 px-3 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-xs font-semibold text-[#adc6ff] flex items-center gap-1 transition-colors"
+                title="Copiar datos del arqueo al portapapeles"
+              >
+                <span className="material-symbols-outlined text-[16px]">{copiedReportText ? 'check' : 'content_copy'}</span>
+                <span>{copiedReportText ? 'Copiado' : 'Copiar'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowXReceiptModal(false)}
+                className="py-2.5 px-3 rounded-xl bg-[#232a3a] text-xs font-semibold text-[#dce2f7] hover:text-white transition-colors"
               >
                 Cerrar
               </button>
