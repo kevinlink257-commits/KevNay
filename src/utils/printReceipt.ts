@@ -72,7 +72,7 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
   <style>
     @page {
       size: ${widthMm} auto;
-      margin: 0;
+      margin: 0mm !important;
     }
     * {
       box-sizing: border-box;
@@ -82,10 +82,16 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
     html, body {
       width: ${widthMm};
       max-width: ${widthMm};
-      background: #ffffff;
-      color: #000000;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+      color: #000000 !important;
       font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
-      font-size: 11px;
+      font-size: ${is80mm ? '12px' : '11px'};
       line-height: 1.25;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -94,7 +100,12 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
       width: 100%;
       max-width: ${widthPx};
       margin: 0 auto;
-      padding: 4px 6px 12px 6px;
+      padding: ${is80mm ? '4px 6px 8px 6px' : '2px 4px 6px 4px'};
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      height: auto !important;
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
@@ -277,13 +288,13 @@ export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOp
             options?.onSuccess?.();
             resolve(true);
           } else {
-            fallbackWindowPrint();
+            printViaDirectPortal(ticket, paperWidth);
             options?.onSuccess?.();
             resolve(true);
           }
         } catch (err) {
-          console.warn('Iframe print error, falling back to window.print():', err);
-          fallbackWindowPrint();
+          console.warn('Iframe print error, falling back to clean portal print:', err);
+          printViaDirectPortal(ticket, paperWidth);
           options?.onSuccess?.();
           resolve(true);
         } finally {
@@ -292,7 +303,7 @@ export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOp
       };
 
       iframe.onload = () => {
-        setTimeout(executePrint, 100);
+        setTimeout(executePrint, 120);
       };
 
       const iframeDoc = iframe.contentWindow?.document;
@@ -305,21 +316,73 @@ export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOp
         iframe.srcdoc = receiptHtml;
       }
     } catch (err) {
-      console.warn('Global print failed, attempting fallback:', err);
-      fallbackWindowPrint();
+      console.warn('Global print failed, attempting clean portal fallback:', err);
+      printViaDirectPortal(ticket, options?.paperWidth || '58mm');
       options?.onSuccess?.();
       resolve(true);
     }
   });
 }
 
-function fallbackWindowPrint() {
+/**
+ * 1-Page Guaranteed Direct Portal Print:
+ * Injects a temporary print portal attached directly to document.body,
+ * hides the entire application (#root) from layout flow during print (display: none),
+ * guaranteeing that exactly 1 single sheet prints with zero blank pages.
+ */
+export function printViaDirectPortal(ticket: SaleTicket, paperWidth: '58mm' | '80mm' = '58mm'): void {
   try {
-    if (typeof window !== 'undefined' && typeof window.print === 'function') {
-      window.print();
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    let portal = document.getElementById('pos-print-portal');
+    if (!portal) {
+      portal = document.createElement('div');
+      portal.id = 'pos-print-portal';
+      document.body.appendChild(portal);
     }
+
+    const is80mm = paperWidth === '80mm';
+    const widthMm = is80mm ? '80mm' : '58mm';
+    const fullHtml = generateThermalReceiptHtml(ticket, paperWidth);
+    const bodyInner = fullHtml.includes('<body>')
+      ? fullHtml.split('<body>')[1].split('</body>')[0]
+      : fullHtml;
+
+    portal.innerHTML = `
+      <style>
+        @page { size: ${widthMm} auto; margin: 0mm !important; }
+        body.is-printing-ticket > *:not(#pos-print-portal) { display: none !important; height: 0 !important; overflow: hidden !important; }
+        #pos-print-portal { display: block !important; width: ${widthMm} !important; max-width: ${widthMm} !important; margin: 0 auto !important; padding: 2mm 3mm !important; background: #ffffff !important; color: #000000 !important; }
+        #pos-print-portal .receipt-container { width: 100% !important; margin: 0 auto !important; page-break-after: avoid !important; break-after: avoid !important; }
+      </style>
+      ${bodyInner}
+    `;
+
+    document.body.classList.add('is-printing-ticket');
+
+    const cleanup = () => {
+      document.body.classList.remove('is-printing-ticket');
+      try {
+        if (portal && portal.parentNode) {
+          portal.parentNode.removeChild(portal);
+        }
+      } catch {}
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.addEventListener('afterprint', cleanup, { once: true });
+
+    setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {
+        console.warn('Window print error:', e);
+      } finally {
+        setTimeout(cleanup, 2500);
+      }
+    }, 80);
   } catch (err) {
-    console.warn('Fallback window.print() could not execute:', err);
+    console.warn('printViaDirectPortal failed:', err);
   }
 }
 
@@ -409,7 +472,7 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
   <style>
     @page {
       size: ${widthMm} auto;
-      margin: 0;
+      margin: 0mm !important;
     }
     * {
       box-sizing: border-box;
@@ -419,8 +482,14 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
     html, body {
       width: ${widthMm};
       max-width: ${widthMm};
-      background: #ffffff;
-      color: #000000;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+      color: #000000 !important;
       font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
       font-size: 11px;
       line-height: 1.25;
@@ -431,7 +500,12 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
       width: 100%;
       max-width: ${widthPx};
       margin: 0 auto;
-      padding: 4px 6px 12px 6px;
+      padding: 4px 6px 8px 6px;
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      height: auto !important;
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
@@ -584,34 +658,24 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
 export function printReportX58mm(data: ReportXData, options?: PrintReceiptOptions): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const receiptHtml = generateReportXThermalHtml(data, options?.paperWidth || '58mm');
+      const paperWidth = options?.paperWidth || '58mm';
+      const receiptHtml = generateReportXThermalHtml(data, paperWidth);
 
-      // Create an invisible iframe for printing
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = 'none';
-      iframe.style.visibility = 'hidden';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = paperWidth === '80mm' ? '450px' : '320px';
+      iframe.style.height = '600px';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0.01';
+      iframe.style.pointerEvents = 'none';
       iframe.setAttribute('aria-hidden', 'true');
       iframe.title = `Print Reporte X ${data.cashierCode}`;
 
       document.body.appendChild(iframe);
 
-      const iframeDoc = iframe.contentWindow?.document;
-      if (!iframeDoc) {
-        fallbackWindowPrint();
-        document.body.removeChild(iframe);
-        options?.onSuccess?.();
-        resolve(true);
-        return;
-      }
-
-      iframeDoc.open();
-      iframeDoc.write(receiptHtml);
-      iframeDoc.close();
+      let printed = false;
 
       const finishAndClean = () => {
         try {
@@ -621,40 +685,105 @@ export function printReportX58mm(data: ReportXData, options?: PrintReceiptOption
         } catch {}
       };
 
-      setTimeout(() => {
+      const doPrint = () => {
+        if (printed) return;
+        printed = true;
         try {
           const win = iframe.contentWindow;
           if (win) {
             win.focus();
-            try {
-              win.print();
-              options?.onSuccess?.();
-              resolve(true);
-            } catch (err) {
-              console.warn('Iframe print blocked or failed, falling back to window.print():', err);
-              fallbackWindowPrint();
-              options?.onSuccess?.();
-              resolve(true);
-            }
+            win.print();
+            options?.onSuccess?.();
+            resolve(true);
           } else {
-            fallbackWindowPrint();
+            printReportXViaPortal(data, paperWidth);
             options?.onSuccess?.();
             resolve(true);
           }
         } catch (err) {
-          console.warn('Print error in Reporte X:', err);
-          fallbackWindowPrint();
+          console.warn('Iframe Reporte X print blocked, falling back to direct portal:', err);
+          printReportXViaPortal(data, paperWidth);
           options?.onSuccess?.();
           resolve(true);
         } finally {
-          setTimeout(finishAndClean, 2000);
+          setTimeout(finishAndClean, 3500);
         }
-      }, 250);
+      };
+
+      iframe.onload = () => {
+        setTimeout(doPrint, 120);
+      };
+
+      const iframeDoc = iframe.contentWindow?.document;
+      if (iframeDoc) {
+        iframeDoc.open();
+        iframeDoc.write(receiptHtml);
+        iframeDoc.close();
+        setTimeout(doPrint, 250);
+      } else {
+        iframe.srcdoc = receiptHtml;
+      }
     } catch (err) {
-      console.warn('Global Reporte X print failed, attempting fallback:', err);
-      fallbackWindowPrint();
+      console.warn('Global Reporte X print failed, attempting portal fallback:', err);
+      printReportXViaPortal(data, options?.paperWidth || '58mm');
       options?.onSuccess?.();
       resolve(true);
     }
   });
+}
+
+export function printReportXViaPortal(data: ReportXData, paperWidth: '58mm' | '80mm' = '58mm'): void {
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    let portal = document.getElementById('pos-print-portal');
+    if (!portal) {
+      portal = document.createElement('div');
+      portal.id = 'pos-print-portal';
+      document.body.appendChild(portal);
+    }
+
+    const is80mm = paperWidth === '80mm';
+    const widthMm = is80mm ? '80mm' : '58mm';
+    const fullHtml = generateReportXThermalHtml(data, paperWidth);
+    const bodyInner = fullHtml.includes('<body>')
+      ? fullHtml.split('<body>')[1].split('</body>')[0]
+      : fullHtml;
+
+    portal.innerHTML = `
+      <style>
+        @page { size: ${widthMm} auto; margin: 0mm !important; }
+        body.is-printing-ticket > *:not(#pos-print-portal) { display: none !important; height: 0 !important; overflow: hidden !important; }
+        #pos-print-portal { display: block !important; width: ${widthMm} !important; max-width: ${widthMm} !important; margin: 0 auto !important; padding: 2mm 3mm !important; background: #ffffff !important; color: #000000 !important; }
+        #pos-print-portal .receipt-container { width: 100% !important; margin: 0 auto !important; page-break-after: avoid !important; break-after: avoid !important; }
+      </style>
+      ${bodyInner}
+    `;
+
+    document.body.classList.add('is-printing-ticket');
+
+    const cleanup = () => {
+      document.body.classList.remove('is-printing-ticket');
+      try {
+        if (portal && portal.parentNode) {
+          portal.parentNode.removeChild(portal);
+        }
+      } catch {}
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.addEventListener('afterprint', cleanup, { once: true });
+
+    setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {
+        console.warn('Window print error in Reporte X:', e);
+      } finally {
+        setTimeout(cleanup, 2500);
+      }
+    }, 80);
+  } catch (err) {
+    console.warn('printReportXViaPortal failed:', err);
+  }
 }

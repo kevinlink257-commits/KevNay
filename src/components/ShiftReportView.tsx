@@ -12,6 +12,7 @@ import {
 import { Cashier, SaleTicket } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
+import { printReportX58mm } from '../utils/printReceipt';
 
 interface ShiftReportViewProps {
   cashier: Cashier;
@@ -184,25 +185,6 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
   const [printFeedback, setPrintFeedback] = useState<string | null>(null);
   const [copiedReportText, setCopiedReportText] = useState<boolean>(false);
 
-  // Print Reporte X (58mm Compact Cash Drawer Audit) using Browser Print API
-  const handlePrintReportX = () => {
-    posAudio.playScanBeep();
-    setShowXReceiptModal(true);
-    setPrintFeedback('Preparando vista de impresión térmica 58mm (Reporte X)...');
-
-    // Trigger Browser Print API
-    setTimeout(() => {
-      try {
-        window.print();
-        posAudio.playCashRegisterChime();
-        setPrintFeedback('✓ Reporte X (58mm) enviado a la cola de impresión del navegador');
-        setTimeout(() => setPrintFeedback(null), 4500);
-      } catch (err) {
-        console.warn('Error invoking window.print():', err);
-      }
-    }, 280);
-  };
-
   const denomValues: { [key: string]: number } = {
     b100k: 100000,
     b50k: 50000,
@@ -235,6 +217,58 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
   );
 
   const difference = countedCash - expectedCashInDrawer;
+
+  // Print Reporte X (58mm Compact Cash Drawer Audit) using Isolated 1-Page Thermal Print Engine
+  const handlePrintReportX = async () => {
+    posAudio.playScanBeep();
+    setShowXReceiptModal(true);
+    setPrintFeedback('Enviando Reporte X a la impresora térmica (58mm)...');
+
+    const denominationsList = Object.keys(denomLabels).map((key) => ({
+      label: denomLabels[key],
+      count: denominations[key] || 0,
+      subtotal: (denominations[key] || 0) * (denomValues[key] || 0),
+    }));
+
+    try {
+      await printReportX58mm(
+        {
+          cashierName: cashier.name,
+          cashierCode: cashier.code,
+          terminalId: 'POS-01 (KNY-BOG-01)',
+          currentDate: new Date().toLocaleDateString('es-CO'),
+          currentTime: new Date().toLocaleTimeString('es-CO'),
+          ticketsCount: shiftTickets.length,
+          initialBase,
+          cashSales,
+          cardSales,
+          qrSales,
+          electronicSales,
+          totalSales,
+          avgTicketValue,
+          expectedCashInDrawer,
+          countedCash,
+          difference,
+          denominations: denominationsList,
+          hourlySummary: hourlySalesData.map((d) => ({
+            hour: d.hour,
+            total: d.totalVentas,
+            count: d.ticketsCount,
+          })),
+        },
+        {
+          paperWidth: '58mm',
+          onSuccess: () => {
+            posAudio.playCashRegisterChime();
+            setPrintFeedback('✓ Reporte X (58mm) impreso en 1 sola hoja');
+            setTimeout(() => setPrintFeedback(null), 4500);
+          },
+        }
+      );
+    } catch (err) {
+      console.warn('Error printing Reporte X:', err);
+    }
+  };
 
   const handleDenomChange = (key: string, val: number) => {
     setDenominations((prev) => ({

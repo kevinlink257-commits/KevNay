@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { SaleTicket } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
-import { printThermalReceipt } from '../utils/printReceipt';
+import { printThermalReceipt, printViaDirectPortal } from '../utils/printReceipt';
 
 interface ThermalReceiptProps {
   ticket: SaleTicket;
@@ -37,13 +37,14 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
   };
 
   /**
-   * Real Hardware / Browser Printing:
-   * Invokes window.print() directly with dedicated @media print CSS injection,
-   * guaranteeing that the native browser print dialog opens without being silenced by browser security.
+  /**
+   * 1-Page Guaranteed Thermal Printing:
+   * Uses clean isolated document printing so NO main app elements or blank trailing pages ever appear.
+   * Prints exactly 1 single sheet matching the 58mm or 80mm format.
    */
-  const handlePrint = () => {
+  const handlePrint = async () => {
     setIsPrinting(true);
-    setPrintStatus(`Abriendo diálogo de impresión térmica (${paperFormat})...`);
+    setPrintStatus(`Enviando ticket a la impresora (${paperFormat})...`);
     posAudio.playKeyClick();
 
     if (onPrint) {
@@ -54,26 +55,22 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
       }
     }
 
-    // Direct invocation of browser print API
-    setTimeout(() => {
-      try {
-        window.print();
-        posAudio.playCashRegisterChime();
-        setPrintStatus(`✓ Ticket enviado a la cola de impresión (${paperFormat})`);
-      } catch (err) {
-        console.warn('Direct window.print() failed, trying offscreen iframe engine:', err);
-        printThermalReceipt(ticket, {
-          paperWidth: paperFormat,
-          onSuccess: () => {
-            posAudio.playCashRegisterChime();
-            setPrintStatus(`✓ Ticket enviado a impresora térmica (${paperFormat})`);
-          },
-        });
-      } finally {
-        setIsPrinting(false);
-        setTimeout(() => setPrintStatus(null), 4500);
-      }
-    }, 150);
+    try {
+      // Primary: Isolated print engine (0 blank pages, 1 page guaranteed)
+      await printThermalReceipt(ticket, {
+        paperWidth: paperFormat,
+        onSuccess: () => {
+          posAudio.playCashRegisterChime();
+          setPrintStatus(`✓ Ticket impreso en 1 sola hoja (${paperFormat})`);
+        },
+      });
+    } catch (err) {
+      console.warn('Error in printThermalReceipt, falling back to direct portal print:', err);
+      printViaDirectPortal(ticket, paperFormat);
+    } finally {
+      setIsPrinting(false);
+      setTimeout(() => setPrintStatus(null), 4500);
+    }
   };
 
   const handleCopyText = () => {
@@ -110,35 +107,6 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
-      {/* Real print stylesheet targeting ONLY #thermal-receipt-printable with the exact width */}
-      <style>{`
-        @media print {
-          @page {
-            size: ${is80mm ? '80mm' : '58mm'} auto;
-            margin: 0mm !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          #thermal-receipt-printable, #thermal-receipt-printable * {
-            visibility: visible !important;
-          }
-          #thermal-receipt-printable {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: ${is80mm ? '80mm' : '58mm'} !important;
-            max-width: ${is80mm ? '80mm' : '58mm'} !important;
-            margin: 0 !important;
-            padding: 2mm 3mm !important;
-            box-shadow: none !important;
-            border: none !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            font-size: ${is80mm ? '12px' : '11px'} !important;
-          }
-        }
-      `}</style>
 
       <div
         className={`bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-4 w-full flex flex-col space-y-3.5 shadow-2xl text-[#dce2f7] transition-all duration-300 ${

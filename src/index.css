@@ -32,49 +32,45 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Custom 58mm POS thermal receipt print styles */
+/* POS Thermal receipt print styles: 1-page guaranteed, 0 blank pages */
 @media print {
   @page {
-    size: 58mm auto;
-    margin: 0;
+    margin: 0mm !important;
   }
   html, body {
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
-    width: 58mm !important;
-    max-width: 58mm !important;
-  }
-  body * {
-    visibility: hidden;
-  }
-  #thermal-receipt-printable,
-  #thermal-receipt-printable *,
-  #thermal-report-x-printable,
-  #thermal-report-x-printable * {
-    visibility: visible !important;
-  }
-  #thermal-receipt-printable,
-  #thermal-report-x-printable {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 58mm !important;
-    max-width: 58mm !important;
-    min-width: 58mm !important;
     height: auto !important;
+    min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
+  }
+
+  /* When printing a POS ticket or report, completely remove all app content from the layout flow */
+  body.is-printing-ticket > *:not(#pos-print-portal) {
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
     margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #pos-print-portal {
+    display: block !important;
+    position: static !important;
+    margin: 0 auto !important;
     padding: 2mm 3mm !important;
     background: #ffffff !important;
     color: #000000 !important;
-    border: none !important;
-    box-shadow: none !important;
-    font-size: 11px !important;
-    line-height: 1.25 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
+
   .no-print {
     display: none !important;
   }
