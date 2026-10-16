@@ -36,7 +36,14 @@
 @media print {
   @page {
     margin: 0mm !important;
+    size: auto;
   }
+
+  *, *:before, *:after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
   html, body {
     margin: 0 !important;
     padding: 0 !important;
@@ -46,33 +53,83 @@
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
+    width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  /* When printing a POS ticket or report, completely remove all app content from the layout flow */
-  body.is-printing-ticket > *:not(#pos-print-portal) {
+  /* When printing via POS portal, hide EVERYTHING else completely from the layout flow */
+  body.is-printing-ticket > *:not(#pos-print-portal),
+  body:has(#pos-print-portal) > *:not(#pos-print-portal) {
     display: none !important;
+    visibility: hidden !important;
     height: 0 !important;
     min-height: 0 !important;
+    max-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: hidden !important;
+    position: absolute !important;
+    top: -99999px !important;
+    left: -99999px !important;
   }
 
   #pos-print-portal {
     display: block !important;
+    visibility: visible !important;
     position: static !important;
     margin: 0 auto !important;
-    padding: 2mm 3mm !important;
+    padding: 1mm 2mm 3mm 2mm !important;
     background: #ffffff !important;
     color: #000000 !important;
+    height: auto !important;
+    max-height: fit-content !important;
     page-break-after: avoid !important;
     break-after: avoid !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    overflow: visible !important;
+  }
+
+  #pos-print-portal .receipt-container {
+    width: 100% !important;
+    margin: 0 auto !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    height: auto !important;
+  }
+
+  #pos-print-portal * {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Fallback: Direct print from ThermalReceipt modal without portal (e.g. keyboard Ctrl+P) */
+  body:not(.is-printing-ticket):has(#thermal-receipt-printable) #root > div > *:not(:has(#thermal-receipt-printable)) {
+    display: none !important;
+  }
+
+  body:not(.is-printing-ticket) #thermal-receipt-printable {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   .no-print {
     display: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 }
 
