@@ -12,11 +12,42 @@ export interface PrintReceiptOptions {
  */
 export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm' | '80mm' = '58mm'): string {
   const widthMm = paperWidth === '80mm' ? '80mm' : '58mm';
-  const widthPx = paperWidth === '80mm' ? '300px' : '220px';
+  const widthPx = paperWidth === '80mm' ? '320px' : '220px';
+  const is80mm = paperWidth === '80mm';
 
-  const itemsHtml = ticket.items
-    .map(
-      (item) => `
+  const itemsHtml = is80mm
+    ? `
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px;">
+        <thead>
+          <tr style="border-bottom: 1px solid #444; font-size: 10px; font-weight: bold;">
+            <th style="text-align: left; padding: 2px 0; width: 12%;">CANT</th>
+            <th style="text-align: left; padding: 2px 4px; width: 48%;">ARTÍCULO / DESCRIPCIÓN</th>
+            <th style="text-align: right; padding: 2px 4px; width: 20%;">P. UNIT</th>
+            <th style="text-align: right; padding: 2px 0; width: 20%;">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ticket.items
+            .map(
+              (item) => `
+            <tr style="border-bottom: 1px dashed #ddd; vertical-align: top;">
+              <td style="padding: 3px 0; font-weight: bold;">${item.quantity}</td>
+              <td style="padding: 3px 4px;">
+                <div style="font-weight: bold;">${escapeHtml(item.product.name)}</div>
+                <div style="font-size: 9px; color: #555;">SKU: ${escapeHtml(item.product.sku || 'N/A')} • ${item.product.taxRate > 0 ? `IVA ${(item.product.taxRate * 100).toFixed(0)}%` : 'EXENTO'}</div>
+              </td>
+              <td style="padding: 3px 4px; text-align: right;">${formatCOP(item.product.price)}</td>
+              <td style="padding: 3px 0; text-align: right; font-weight: bold;">${formatCOP(item.product.price * item.quantity)}</td>
+            </tr>
+          `
+            )
+            .join('')}
+        </tbody>
+      </table>
+    `
+    : ticket.items
+        .map(
+          (item) => `
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; font-size: 11px;">
         <div style="padding-right: 4px; max-width: 70%;">
           <div style="font-weight: bold;">${item.quantity}x ${escapeHtml(item.product.name)}</div>
@@ -29,8 +60,8 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
         </div>
       </div>
     `
-    )
-    .join('');
+        )
+        .join('');
 
   return `
 <!DOCTYPE html>
@@ -193,42 +224,39 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * Robust Direct 58mm Thermal Print:
- * Uses an invisible iframe to isolate the print document from the main application,
- * ensuring no styling leakage and preventing iframe sandbox errors.
- * Includes multiple fallbacks so it never throws an uncaught error.
+ * Robust Direct Thermal Print (58mm or 80mm):
+ * Uses an offscreen rendered iframe with non-zero dimensions and opacity: 0.01
+ * so modern browser security engines do NOT block print().
+ * Always triggers the real print dialog, with automatic fallback to window.print().
  */
 export function printTicket58mm(ticket: SaleTicket, options?: PrintReceiptOptions): Promise<boolean> {
+  return printThermalReceipt(ticket, options);
+}
+
+export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOptions): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const receiptHtml = generateThermalReceiptHtml(ticket, options?.paperWidth || '58mm');
+      const paperWidth = options?.paperWidth || '58mm';
+      const receiptHtml = generateThermalReceiptHtml(ticket, paperWidth);
 
-      // Create an invisible iframe for printing
+      // Create an offscreen rendered iframe with physical non-zero dimensions
+      // NOTE: Modern browsers (Chrome, Edge, Safari, Firefox) silently discard print()
+      // on elements with visibility:hidden or display:none or 0x0 dimensions.
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = 'none';
-      iframe.style.visibility = 'hidden';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = paperWidth === '80mm' ? '450px' : '320px';
+      iframe.style.height = '600px';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0.01';
+      iframe.style.pointerEvents = 'none';
       iframe.setAttribute('aria-hidden', 'true');
       iframe.title = `Print Receipt ${ticket.ticketNumber}`;
 
       document.body.appendChild(iframe);
 
-      const iframeDoc = iframe.contentWindow?.document;
-      if (!iframeDoc) {
-        // Fallback to window.print()
-        fallbackWindowPrint();
-        document.body.removeChild(iframe);
-        resolve(true);
-        return;
-      }
-
-      iframeDoc.open();
-      iframeDoc.write(receiptHtml);
-      iframeDoc.close();
+      let triggered = false;
 
       const finishAndClean = () => {
         try {
@@ -238,37 +266,44 @@ export function printTicket58mm(ticket: SaleTicket, options?: PrintReceiptOption
         } catch {}
       };
 
-      // Wait for content to render, then print
-      setTimeout(() => {
+      const executePrint = () => {
+        if (triggered) return;
+        triggered = true;
         try {
           const win = iframe.contentWindow;
           if (win) {
             win.focus();
-            try {
-              win.print();
-              options?.onSuccess?.();
-              resolve(true);
-            } catch (err) {
-              console.warn('Iframe print blocked or failed, falling back to window.print():', err);
-              fallbackWindowPrint();
-              options?.onSuccess?.();
-              resolve(true);
-            }
+            win.print();
+            options?.onSuccess?.();
+            resolve(true);
           } else {
             fallbackWindowPrint();
             options?.onSuccess?.();
             resolve(true);
           }
         } catch (err) {
-          console.warn('Print error:', err);
+          console.warn('Iframe print error, falling back to window.print():', err);
           fallbackWindowPrint();
           options?.onSuccess?.();
           resolve(true);
         } finally {
-          // Remove iframe after print dialog completes
-          setTimeout(finishAndClean, 2000);
+          setTimeout(finishAndClean, 3500);
         }
-      }, 250);
+      };
+
+      iframe.onload = () => {
+        setTimeout(executePrint, 100);
+      };
+
+      const iframeDoc = iframe.contentWindow?.document;
+      if (iframeDoc) {
+        iframeDoc.open();
+        iframeDoc.write(receiptHtml);
+        iframeDoc.close();
+        setTimeout(executePrint, 250);
+      } else {
+        iframe.srcdoc = receiptHtml;
+      }
     } catch (err) {
       console.warn('Global print failed, attempting fallback:', err);
       fallbackWindowPrint();
