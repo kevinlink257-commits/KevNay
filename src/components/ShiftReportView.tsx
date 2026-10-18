@@ -12,7 +12,7 @@ import {
 import { Cashier, SaleTicket } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
-import { printReportX58mm } from '../utils/printReceipt';
+import { printReportX58mm, getStoredPaperFormat } from '../utils/printReceipt';
 
 interface ShiftReportViewProps {
   cashier: Cashier;
@@ -218,11 +218,12 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
 
   const difference = countedCash - expectedCashInDrawer;
 
-  // Print Reporte X (58mm Compact Cash Drawer Audit) using Isolated 1-Page Thermal Print Engine
+  // Print Reporte X (80mm, 58mm, or 57mm Thermal Cash Drawer Audit) using Isolated 1-Page Thermal Print Engine
   const handlePrintReportX = async () => {
     posAudio.playScanBeep();
     setShowXReceiptModal(true);
-    setPrintFeedback('Enviando Reporte X a la impresora térmica (58mm)...');
+    const activeFmt = getStoredPaperFormat();
+    setPrintFeedback(`Enviando Reporte X a la impresora térmica (${activeFmt})...`);
 
     const denominationsList = Object.keys(denomLabels).map((key) => ({
       label: denomLabels[key],
@@ -257,10 +258,10 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
           })),
         },
         {
-          paperWidth: '58mm',
+          paperWidth: activeFmt,
           onSuccess: () => {
             posAudio.playCashRegisterChime();
-            setPrintFeedback('✓ Reporte X (58mm) impreso en 1 sola hoja');
+            setPrintFeedback(`✓ Reporte X (${activeFmt}) impreso en 1 sola hoja`);
             setTimeout(() => setPrintFeedback(null), 4500);
           },
         }
@@ -297,16 +298,18 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* BOTÓN OFICIAL: Imprimir Reporte X (58mm) */}
+          {/* BOTÓN OFICIAL: Imprimir Reporte X */}
           <button
             type="button"
             onClick={handlePrintReportX}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white border border-[#38bdf8]/50 text-xs font-bold transition-all shadow-md active:scale-95"
-            title="Imprimir Reporte X (Versión térmica compacta de 58mm del arqueo de caja actual)"
+            title="Imprimir Reporte X (Versión térmica del arqueo de caja actual)"
           >
             <span className="material-symbols-outlined text-[18px]">print</span>
             <span>Imprimir Reporte X</span>
-            <span className="text-[9px] bg-[#0c4a6e] text-[#bae6fd] px-1.5 py-0.2 rounded font-mono font-bold">58mm</span>
+            <span className="text-[9px] bg-[#0c4a6e] text-[#bae6fd] px-1.5 py-0.2 rounded font-mono font-bold">
+              {getStoredPaperFormat()}
+            </span>
           </button>
 
           <button
@@ -977,15 +980,12 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => {
-                  posAudio.playKeyClick();
-                  window.print();
-                }}
+                onClick={handlePrintReportX}
                 className="flex-1 py-2.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
-                title="Ejecutar API de impresión del navegador (window.print)"
+                title="Ejecutar motor de impresión térmica (1 sola hoja garantizada)"
               >
                 <span className="material-symbols-outlined text-[16px]">print</span>
-                <span>Imprimir Reporte X</span>
+                <span>Imprimir Reporte X ({getStoredPaperFormat()})</span>
               </button>
               <button
                 type="button"

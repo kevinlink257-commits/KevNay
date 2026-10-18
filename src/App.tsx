@@ -1,5 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Cashier, Product, SaleTicket, AuditEvent, OperatingHoursConfig } from './types/pos';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Cashier,
+  Product,
+  SaleTicket,
+  AuditEvent,
+  OperatingHoursConfig,
+  PosPaperFormat,
+} from './types/pos';
 import {
   INITIAL_CASHIERS,
   INITIAL_PRODUCTS,
@@ -17,6 +24,7 @@ import { AuditLogModal } from './components/AuditLogModal';
 import { BackupManagerModal } from './components/BackupManagerModal';
 import { AdminAnalyticsDashboard } from './components/AdminAnalyticsDashboard';
 import { ResetSalesModal } from './components/ResetSalesModal';
+import { PrintFormatSettings } from './components/PrintFormatSettings';
 import { exportAndDownloadBackup } from './utils/backup';
 import {
   performFullDatabaseAutoSave,
@@ -25,6 +33,11 @@ import {
   formatDataBytes,
 } from './utils/autoSave';
 import { loadOperatingHours, saveOperatingHours } from './utils/operatingHours';
+import {
+  getStoredPaperFormat,
+  setStoredPaperFormat,
+  printTestTicket,
+} from './utils/printReceipt';
 
 export default function App() {
   // App state with local persistence (checks unified pos_full_database snapshot first)
@@ -131,6 +144,61 @@ export default function App() {
 
   // Emergency shift close state
   const [emergencyCloseNotice, setEmergencyCloseNotice] = useState<boolean>(false);
+
+  // Globally Synchronized Ticket Printing Paper Format (80mm, 58mm, 57mm)
+  const [currentPaperFormat, setCurrentPaperFormat] = useState<PosPaperFormat>(() => getStoredPaperFormat());
+  const [isFormatMenuOpen, setIsFormatMenuOpen] = useState<boolean>(false);
+  const [showPrintFormatModal, setShowPrintFormatModal] = useState<boolean>(false);
+  const formatMenuRef = useRef<HTMLDivElement>(null);
+
+  // Keep format synchronized with all views, modals, and localStorage changes
+  useEffect(() => {
+    const handleFormatChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ format: PosPaperFormat }>;
+      if (customEvent.detail?.format) {
+        setCurrentPaperFormat(customEvent.detail.format);
+      }
+    };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'pos_paper_format' && e.newValue) {
+        if (e.newValue === '80mm' || e.newValue === '58mm' || e.newValue === '57mm') {
+          setCurrentPaperFormat(e.newValue);
+        }
+      }
+    };
+    window.addEventListener('pos_paper_format_changed', handleFormatChange);
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('pos_paper_format_changed', handleFormatChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  // Close quick format dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (formatMenuRef.current && !formatMenuRef.current.contains(e.target as Node)) {
+        setIsFormatMenuOpen(false);
+      }
+    };
+    if (isFormatMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isFormatMenuOpen]);
+
+  const handleQuickChangeFormat = (fmt: PosPaperFormat) => {
+    posAudio.playKeyClick();
+    setCurrentPaperFormat(fmt);
+    setStoredPaperFormat(fmt);
+    setIsFormatMenuOpen(false);
+    logAudit(
+      'sale_completed',
+      `Formato de impresión de ticket cambiado a ${fmt} desde la barra de control superior por ${currentCashier.name}`
+    );
+  };
 
   // Dedicated Terminal Fullscreen API Mode
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
@@ -760,7 +828,114 @@ export default function App() {
           <span className="text-[#e6bdb8] hidden md:inline">Terminal Retail v4.2.1-prod</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Quick Ticket Print Format Indicator & Switcher */}
+          <div className="relative" ref={formatMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setIsFormatMenuOpen((prev) => !prev);
+              }}
+              title={`Formato de impresión de ticket actual: ${currentPaperFormat}. Clic para cambiar rápidamente entre 80mm, 58mm y 57mm.`}
+              className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 transition-all border shadow-sm cursor-pointer ${
+                isFormatMenuOpen
+                  ? 'bg-sky-500/25 text-white border-sky-400 ring-2 ring-sky-500/40'
+                  : 'bg-[#191f2f] hover:bg-[#232a3a] text-sky-300 hover:text-white border-sky-500/40'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[15px] text-sky-400">print</span>
+              <span className="text-[#e6bdb8] hidden xs:inline">Formato:</span>
+              <span className="font-mono font-bold text-sky-200 bg-sky-500/20 px-1.5 py-0.2 rounded border border-sky-400/40">
+                {currentPaperFormat}
+              </span>
+              <span className="material-symbols-outlined text-[13px] text-sky-400">
+                {isFormatMenuOpen ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+
+            {/* Quick Format Dropdown Popover */}
+            {isFormatMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-64 bg-[#141b2a]/95 border border-sky-500/50 rounded-xl shadow-2xl p-2.5 z-50 text-xs animate-fadeIn backdrop-blur-md">
+                <div className="flex items-center justify-between pb-1.5 border-b border-[#374151]/50 mb-2">
+                  <span className="font-bold text-white text-[11px] flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px] text-sky-400">print</span>
+                    Formato de Ticket POS
+                  </span>
+                  <span className="text-[10px] text-sky-300 font-mono font-bold bg-sky-500/20 px-1.5 py-0.2 rounded border border-sky-400/30">
+                    {currentPaperFormat} ACTIVO
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  {(['80mm', '58mm', '57mm'] as PosPaperFormat[]).map((fmt) => {
+                    const isSelected = currentPaperFormat === fmt;
+                    const meta =
+                      fmt === '80mm'
+                        ? { cols: '48 cols', desc: 'Estándar amplio tabular' }
+                        : fmt === '58mm'
+                        ? { cols: '32 cols', desc: 'Estándar compacto retail' }
+                        : { cols: '30 cols', desc: 'Ultra compacto móvil' };
+
+                    return (
+                      <button
+                        key={fmt}
+                        type="button"
+                        onClick={() => handleQuickChangeFormat(fmt)}
+                        className={`w-full text-left p-1.5 rounded-lg flex items-center justify-between transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-sky-500 text-black font-bold shadow-sm'
+                            : 'hover:bg-[#232a3a] text-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs">{fmt}</span>
+                          <span
+                            className={`text-[10px] ${
+                              isSelected ? 'text-black/80 font-medium' : 'text-gray-400'
+                            }`}
+                          >
+                            • {meta.desc}
+                          </span>
+                        </div>
+                        {isSelected ? (
+                          <span className="material-symbols-outlined text-[15px]">check</span>
+                        ) : (
+                          <span className="font-mono text-[9px] text-gray-500">{meta.cols}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2 mt-2 border-t border-[#374151]/40 flex items-center justify-between text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsFormatMenuOpen(false);
+                      setShowPrintFormatModal(true);
+                    }}
+                    className="text-sky-300 hover:text-white underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span>Ajustes avanzados</span>
+                    <span className="material-symbols-outlined text-[12px]">settings</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      printTestTicket(currentPaperFormat);
+                      posAudio.playCashRegisterChime();
+                      setIsFormatMenuOpen(false);
+                    }}
+                    className="px-2 py-0.5 rounded bg-[#232a3a] hover:bg-[#323949] text-gray-300 hover:text-white border border-[#374151]/50 font-semibold cursor-pointer"
+                  >
+                    Ticket prueba
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* View mode toggle */}
           <div className="flex items-center bg-[#191f2f] rounded-lg p-0.5 border border-[#374151]/40">
             <button
@@ -1463,6 +1638,14 @@ export default function App() {
         currentCashierName={currentCashier.name}
         adminPin={adminCashierUser.pin}
       />
+
+      {/* Quick Print Format Settings Modal from Top Control Bar */}
+      {showPrintFormatModal && (
+        <PrintFormatSettings
+          isModal
+          onClose={() => setShowPrintFormatModal(false)}
+        />
+      )}
     </div>
   );
 }

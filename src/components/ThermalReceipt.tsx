@@ -1,8 +1,13 @@
-import React, { useRef, useState } from 'react';
-import { SaleTicket } from '../types/pos';
+import React, { useRef, useState, useEffect } from 'react';
+import { SaleTicket, PosPaperFormat } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
-import { printThermalReceipt, printViaDirectPortal } from '../utils/printReceipt';
+import {
+  printThermalReceipt,
+  printViaDirectPortal,
+  getStoredPaperFormat,
+  setStoredPaperFormat,
+} from '../utils/printReceipt';
 
 interface ThermalReceiptProps {
   ticket: SaleTicket;
@@ -16,35 +21,75 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
-  // Persistent Paper Format state (58mm vs 80mm)
-  const [paperFormat, setPaperFormat] = useState<'58mm' | '80mm'>(() => {
-    try {
-      const saved = localStorage.getItem('pos_paper_format');
-      return saved === '80mm' ? '80mm' : '58mm';
-    } catch {
-      return '58mm';
-    }
-  });
+  // Persistent Paper Format state (80mm vs 58mm vs 57mm)
+  const [paperFormat, setPaperFormat] = useState<PosPaperFormat>(() => getStoredPaperFormat());
 
-  const handleSelectPaperFormat = (fmt: '58mm' | '80mm') => {
+  // Keep state perfectly synchronized with permanent configuration from Inventory or Settings
+  useEffect(() => {
+    const handleFormatChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ format: PosPaperFormat }>;
+      if (customEvent.detail?.format) {
+        setPaperFormat(customEvent.detail.format);
+      }
+    };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'pos_paper_format' && e.newValue) {
+        if (e.newValue === '80mm' || e.newValue === '58mm' || e.newValue === '57mm') {
+          setPaperFormat(e.newValue);
+        }
+      }
+    };
+    window.addEventListener('pos_paper_format_changed', handleFormatChange);
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('pos_paper_format_changed', handleFormatChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  const handleSelectPaperFormat = (fmt: PosPaperFormat) => {
     posAudio.playKeyClick();
     setPaperFormat(fmt);
-    try {
-      localStorage.setItem('pos_paper_format', fmt);
-    } catch {}
-    setPrintStatus(`Formato cambiado a papel térmico de ${fmt}`);
+    setStoredPaperFormat(fmt);
+    setPrintStatus(`Formato cambiado a papel térmico de ${fmt} (guardado permanentemente)`);
     setTimeout(() => setPrintStatus(null), 2500);
   };
 
   /**
-  /**
    * 1-Page Guaranteed Thermal Printing:
-   * Uses clean isolated document printing so NO main app elements or blank trailing pages ever appear.
-   * Prints exactly 1 single sheet matching the 58mm or 80mm format.
+   * 1. Reads the latest persistent paper format state.
+   * 2. Adjusts container CSS classes (pos-width-*, paper-format-*, receipt-container-*)
+   *    prior to triggering window.print().
+   * 3. Dispatches clean isolated printing with zero blank trailing pages.
    */
   const handlePrint = async () => {
+    // 1. Read persistent state and ensure component state is current
+    const targetFormat: PosPaperFormat = paperFormat || getStoredPaperFormat();
+    setPaperFormat(targetFormat);
+
+    // 2. Adjust container CSS classes on the printable DOM element and body before firing print
+    if (printableRef.current) {
+      printableRef.current.setAttribute('data-paper-format', targetFormat);
+      printableRef.current.classList.remove(
+        'pos-width-80mm',
+        'pos-width-58mm',
+        'pos-width-57mm',
+        'paper-format-80mm',
+        'paper-format-58mm',
+        'paper-format-57mm',
+        'receipt-container-80mm',
+        'receipt-container-58mm',
+        'receipt-container-57mm'
+      );
+      printableRef.current.classList.add(
+        `pos-width-${targetFormat}`,
+        `paper-format-${targetFormat}`,
+        `receipt-container-${targetFormat}`
+      );
+    }
+
     setIsPrinting(true);
-    setPrintStatus(`Enviando ticket a la impresora (${paperFormat})...`);
+    setPrintStatus(`Enviando ticket a la impresora (${targetFormat})...`);
     posAudio.playKeyClick();
 
     if (onPrint) {
@@ -58,15 +103,15 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
     try {
       // Primary: Isolated print engine (0 blank pages, 1 page guaranteed)
       await printThermalReceipt(ticket, {
-        paperWidth: paperFormat,
+        paperWidth: targetFormat,
         onSuccess: () => {
           posAudio.playCashRegisterChime();
-          setPrintStatus(`✓ Ticket impreso en 1 sola hoja (${paperFormat})`);
+          setPrintStatus(`✓ Ticket impreso en 1 sola hoja (${targetFormat})`);
         },
       });
     } catch (err) {
       console.warn('Error in printThermalReceipt, falling back to direct portal print:', err);
-      printViaDirectPortal(ticket, paperFormat);
+      printViaDirectPortal(ticket, targetFormat);
     } finally {
       setIsPrinting(false);
       setTimeout(() => setPrintStatus(null), 4500);
@@ -104,13 +149,13 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
   };
 
   const is80mm = paperFormat === '80mm';
+  const is57mm = paperFormat === '57mm';
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
-
       <div
         className={`bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-4 w-full flex flex-col space-y-3.5 shadow-2xl text-[#dce2f7] transition-all duration-300 ${
-          is80mm ? 'max-w-md sm:max-w-lg' : 'max-w-sm'
+          is80mm ? 'max-w-md sm:max-w-lg' : is57mm ? 'max-w-sm sm:max-w-[360px]' : 'max-w-sm'
         }`}
       >
         {/* Header Actions */}
@@ -131,32 +176,42 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Paper format selector (58mm vs 80mm) */}
+            {/* Paper format selector (57mm vs 58mm vs 80mm) */}
             <div className="flex items-center bg-[#141b2b] p-0.5 rounded-lg border border-[#374151]/60 text-[11px] font-mono shadow-inner">
               <button
                 type="button"
+                onClick={() => handleSelectPaperFormat('57mm')}
+                className={`px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 ${
+                  paperFormat === '57mm'
+                    ? 'bg-[#dc2626] text-white shadow-sm'
+                    : 'text-[#e6bdb8] hover:text-white hover:bg-[#232a3a]'
+                }`}
+                title="Formato mini terminal / portátil de 57mm"
+              >
+                <span>57mm</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => handleSelectPaperFormat('58mm')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all flex items-center gap-1 ${
+                className={`px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 ${
                   paperFormat === '58mm'
                     ? 'bg-[#dc2626] text-white shadow-sm'
                     : 'text-[#e6bdb8] hover:text-white hover:bg-[#232a3a]'
                 }`}
-                title="Cambiar a formato térmico estrecho 58mm"
+                title="Formato térmico estándar 58mm"
               >
-                <span className="material-symbols-outlined text-[13px]">view_column</span>
                 <span>58mm</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaperFormat('80mm')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all flex items-center gap-1 ${
+                className={`px-2 py-1 rounded-md font-bold transition-all flex items-center gap-1 ${
                   paperFormat === '80mm'
                     ? 'bg-[#dc2626] text-white shadow-sm'
                     : 'text-[#e6bdb8] hover:text-white hover:bg-[#232a3a]'
                 }`}
-                title="Cambiar a formato térmico estándar amplio 80mm"
+                title="Formato térmico estándar amplio 80mm"
               >
-                <span className="material-symbols-outlined text-[13px]">table_rows</span>
                 <span>80mm</span>
               </button>
             </div>
@@ -173,17 +228,24 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
         </div>
 
         {/* Paper Receipt Visual with Real Dynamic Width & Layout Switching */}
-        <div className="flex justify-center bg-[#0d1320] p-2 sm:p-3 rounded-xl border border-[#374151]/40 overflow-hidden">
+        <div className={`flex justify-center bg-[#0d1320] p-2 sm:p-3 rounded-xl border border-[#374151]/40 overflow-hidden receipt-frame-${paperFormat}`}>
           <div
             ref={printableRef}
             id="thermal-receipt-printable"
-            className={`bg-white text-black font-mono leading-tight p-3 sm:p-4 rounded-lg shadow-xl border border-gray-300 select-text max-h-[55vh] overflow-y-auto transition-all duration-300 ${
-              is80mm ? 'w-full max-w-[420px] text-[12px]' : 'w-full max-w-[245px] text-[11px]'
+            data-paper-format={paperFormat}
+            className={`bg-white text-black font-mono leading-tight p-3 sm:p-4 rounded-lg shadow-xl border border-gray-300 select-text max-h-[55vh] overflow-y-auto transition-all duration-300 pos-width-${paperFormat} paper-format-${paperFormat} receipt-container-${paperFormat} ${
+              is80mm
+                ? 'w-full max-w-[80mm] sm:max-w-[420px] text-[12px]'
+                : is57mm
+                ? 'w-full max-w-[57mm] sm:max-w-[236px] text-[10px]'
+                : 'w-full max-w-[58mm] sm:max-w-[245px] text-[11px]'
             }`}
           >
             {/* Header */}
             <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-gray-400">
-              <p className={`font-black tracking-wider ${is80mm ? 'text-base' : 'text-sm'}`}>KEV NAY RETAIL HUB</p>
+              <p className={`font-black tracking-wider ${is80mm ? 'text-base' : is57mm ? 'text-xs' : 'text-sm'}`}>
+                KEV NAY RETAIL HUB
+              </p>
               <p className="text-[10px] font-bold text-gray-800">BOUTIQUE & ACCESORIOS</p>
               <p className="text-[9px] text-gray-600">NIT: 901.845.293-4 • RÉGIMEN COMÚN</p>
               <p className="text-[9px] text-gray-600">Cra. 15 # 85-32, Bogotá D.C. • Tel: (+57) 314 892 0104</p>
@@ -218,7 +280,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
               </div>
             </div>
 
-            {/* Items Table - Responsive to 58mm vs 80mm format */}
+            {/* Items Table - Responsive to 57mm vs 58mm vs 80mm format */}
             {is80mm ? (
               /* 80mm: Full 4-column structured table */
               <div className="py-2 border-b border-dashed border-gray-400">
@@ -246,8 +308,31 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ ticket, onClose,
                   ))}
                 </div>
               </div>
+            ) : is57mm ? (
+              /* 57mm: Ultra-compact high density layout */
+              <div className="py-1.5 border-b border-dashed border-gray-400">
+                <div className="flex justify-between font-bold text-[9px] pb-1 border-b border-gray-300 text-gray-800">
+                  <span>CANT / ARTÍCULO</span>
+                  <span>TOTAL</span>
+                </div>
+                <div className="space-y-1 pt-1">
+                  {ticket.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-start text-[9.5px]">
+                      <div className="flex flex-col pr-1 max-w-[68%]">
+                        <span className="font-semibold leading-tight text-gray-900">{item.quantity}x {item.product.name}</span>
+                        <span className="text-[7.5px] text-gray-500">
+                          @ {formatCOP(item.product.price)} {item.product.taxRate > 0 ? `(IVA ${(item.product.taxRate * 100).toFixed(0)}%)` : '(EXENTO)'}
+                        </span>
+                      </div>
+                      <span className="font-bold whitespace-nowrap text-gray-900 text-[9.5px]">
+                        {formatCOP(item.product.price * item.quantity)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
-              /* 58mm: Compact 2-line layout */
+              /* 58mm: Standard compact 2-line layout */
               <div className="py-2 border-b border-dashed border-gray-400">
                 <div className="flex justify-between font-bold text-[10px] pb-1 border-b border-gray-300 text-gray-800">
                   <span>CANT / ARTÍCULO</span>

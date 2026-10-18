@@ -1,19 +1,50 @@
-import { SaleTicket } from '../types/pos';
+import { SaleTicket, PosPaperFormat } from '../types/pos';
 import { formatCOP } from './format';
 
+export type { PosPaperFormat };
+
 export interface PrintReceiptOptions {
-  paperWidth?: '58mm' | '80mm';
+  paperWidth?: PosPaperFormat;
   onSuccess?: () => void;
   onError?: (err: Error) => void;
 }
 
 /**
- * Generates the clean HTML markup of a 58mm (or 80mm) thermal receipt.
+ * Reads persistent paper format from localStorage, defaulting to '58mm'.
+ * Supports '80mm', '58mm', and '57mm'.
  */
-export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm' | '80mm' = '58mm'): string {
-  const widthMm = paperWidth === '80mm' ? '80mm' : '58mm';
-  const widthPx = paperWidth === '80mm' ? '320px' : '220px';
-  const is80mm = paperWidth === '80mm';
+export function getStoredPaperFormat(): PosPaperFormat {
+  try {
+    const saved = localStorage.getItem('pos_paper_format');
+    if (saved === '80mm' || saved === '58mm' || saved === '57mm') {
+      return saved;
+    }
+  } catch {}
+  return '58mm';
+}
+
+/**
+ * Saves persistent paper format to localStorage and dispatches a change event.
+ */
+export function setStoredPaperFormat(format: PosPaperFormat): void {
+  try {
+    localStorage.setItem('pos_paper_format', format);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pos_paper_format_changed', { detail: { format } }));
+    }
+  } catch {}
+}
+
+/**
+ * Generates clean HTML markup for 80mm, 58mm or 57mm thermal receipts.
+ */
+export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth?: PosPaperFormat): string {
+  const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+  const widthMm = format;
+  const is80mm = format === '80mm';
+  const is57mm = format === '57mm';
+  const widthPx = is80mm ? '320px' : is57mm ? '216px' : '220px';
+  const baseFontSize = is80mm ? '12px' : is57mm ? '10.5px' : '11px';
 
   const itemsHtml = is80mm
     ? `
@@ -45,6 +76,24 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
         </tbody>
       </table>
     `
+    : is57mm
+    ? ticket.items
+        .map(
+          (item) => `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3px; font-size: 10px; line-height: 1.2;">
+        <div style="padding-right: 3px; max-width: 68%;">
+          <div style="font-weight: bold; word-break: break-word;">${item.quantity}x ${escapeHtml(item.product.name)}</div>
+          <div style="font-size: 8px; color: #555;">
+            @ ${formatCOP(item.product.price)} ${item.product.taxRate > 0 ? `(IVA ${(item.product.taxRate * 100).toFixed(0)}%)` : '(EXENTO)'}
+          </div>
+        </div>
+        <div style="font-weight: bold; white-space: nowrap; font-size: 10px;">
+          ${formatCOP(item.product.price * item.quantity)}
+        </div>
+      </div>
+    `
+        )
+        .join('')
     : ticket.items
         .map(
           (item) => `
@@ -91,7 +140,7 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
       background: #ffffff !important;
       color: #000000 !important;
       font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
-      font-size: ${is80mm ? '12px' : '11px'};
+      font-size: ${baseFontSize};
       line-height: 1.25;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -100,7 +149,7 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
       width: 100%;
       max-width: ${widthPx};
       margin: 0 auto;
-      padding: ${is80mm ? '4px 6px 8px 6px' : '2px 4px 6px 4px'};
+      padding: ${is80mm ? '4px 6px 8px 6px' : is57mm ? '1mm 1.5mm 3mm 1.5mm' : '2px 4px 6px 4px'};
       page-break-after: avoid !important;
       break-after: avoid !important;
       page-break-before: avoid !important;
@@ -134,8 +183,8 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
       <div style="font-size: 9px;">Cra. 15 # 85-32, Bogotá D.C.</div>
       <div style="font-size: 9px;">Tel: (+57) 314 892 0104</div>
       <div style="font-size: 9px; color: #444;">Res. DIAN #18764032 de 2026</div>
-      <div style="font-size: 9px; font-weight: bold; margin-top: 2px; padding: 1px 3px; background: #eee; display: inline-block;">
-        SISTEMA POS POS-01
+      <div style="font-size: 8.5px; font-weight: bold; margin-top: 2px; padding: 1px 4px; background: #eee; border: 1px solid #ccc; display: inline-block;">
+        SISTEMA POS • ${widthMm}
       </div>
     </div>
 
@@ -219,7 +268,7 @@ export function generateThermalReceiptHtml(ticket: SaleTicket, paperWidth: '58mm
       </div>
       <div style="font-size: 8px; color: #555;">CUFE: e4a7-891b-602c-499f</div>
       <div style="font-size: 10px; font-weight: bold; margin-top: 4px;">¡GRACIAS POR SU COMPRA!</div>
-      <div style="font-size: 8px; color: #777; margin-top: 2px;">Software Kev Nay POS Engine v4.3</div>
+      <div style="font-size: 8px; color: #777; margin-top: 2px;">Software Kev Nay POS Engine v4.3 • Formato ${widthMm}</div>
     </div>
   </div>
 </body>
@@ -237,16 +286,15 @@ function escapeHtml(str: string): string {
 }
 
 /**
-/**
  * 1-Page Guaranteed POS Print Engine:
  * Injects a temporary print portal (#pos-print-portal) directly to document.body.
  * In @media print, strictly hides the entire application (#root, all modals, overlays)
  * from layout flow with display:none !important, guaranteeing that EXACTLY 1 single sheet
- * prints with ZERO blank pages and perfectly matches 58mm or 80mm roll width.
+ * prints with ZERO blank pages and perfectly matches 80mm, 58mm, or 57mm roll width.
  */
 function executePortalPrint(
   fullHtml: string,
-  paperWidth: '58mm' | '80mm' = '58mm',
+  paperWidth?: PosPaperFormat,
   onDone?: () => void
 ): void {
   try {
@@ -261,12 +309,17 @@ function executePortalPrint(
       existing.parentNode.removeChild(existing);
     }
 
-    const is80mm = paperWidth === '80mm';
-    const widthMm = is80mm ? '80mm' : '58mm';
-    const widthPx = is80mm ? '320px' : '220px';
+    const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+    const is80mm = format === '80mm';
+    const is57mm = format === '57mm';
+    const widthMm = format;
+    const widthPx = is80mm ? '320px' : is57mm ? '216px' : '220px';
+    const baseFontSize = is80mm ? '12px' : is57mm ? '10.5px' : '11px';
 
     const portal = document.createElement('div');
     portal.id = 'pos-print-portal';
+    portal.setAttribute('data-paper-format', format);
+    portal.className = `pos-ticket-portal pos-portal-${format} pos-width-${format} paper-format-${format} receipt-container-${format}`;
 
     const innerBody = fullHtml.includes('<body>')
       ? fullHtml.split('<body>')[1].split('</body>')[0]
@@ -313,11 +366,11 @@ function executePortalPrint(
             width: ${widthMm} !important;
             max-width: ${widthMm} !important;
             margin: 0 auto !important;
-            padding: 1mm 2mm 3mm 2mm !important;
+            padding: ${is80mm ? '2mm 3mm' : is57mm ? '0.5mm 1mm 2mm 1mm' : '1mm 2mm 3mm 2mm'} !important;
             background: #ffffff !important;
             color: #000000 !important;
             font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
-            font-size: ${is80mm ? '12px' : '11px'} !important;
+            font-size: ${baseFontSize} !important;
             line-height: 1.25 !important;
             page-break-after: avoid !important;
             break-after: avoid !important;
@@ -365,15 +418,47 @@ function executePortalPrint(
     `;
 
     document.body.appendChild(portal);
-    document.body.classList.add('is-printing-ticket');
-    document.documentElement.classList.add('is-printing-ticket');
+    document.body.classList.add(
+      'is-printing-ticket',
+      `is-printing-${format}`,
+      `pos-width-${format}`,
+      `paper-format-${format}`
+    );
+    document.documentElement.classList.add(
+      'is-printing-ticket',
+      `is-printing-${format}`,
+      `pos-width-${format}`,
+      `paper-format-${format}`
+    );
 
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
-      document.body.classList.remove('is-printing-ticket');
-      document.documentElement.classList.remove('is-printing-ticket');
+      document.body.classList.remove(
+        'is-printing-ticket',
+        'is-printing-80mm',
+        'is-printing-58mm',
+        'is-printing-57mm',
+        'pos-width-80mm',
+        'pos-width-58mm',
+        'pos-width-57mm',
+        'paper-format-80mm',
+        'paper-format-58mm',
+        'paper-format-57mm'
+      );
+      document.documentElement.classList.remove(
+        'is-printing-ticket',
+        'is-printing-80mm',
+        'is-printing-58mm',
+        'is-printing-57mm',
+        'pos-width-80mm',
+        'pos-width-58mm',
+        'pos-width-57mm',
+        'paper-format-80mm',
+        'paper-format-58mm',
+        'paper-format-57mm'
+      );
       try {
         if (portal && portal.parentNode) {
           portal.parentNode.removeChild(portal);
@@ -401,7 +486,85 @@ function executePortalPrint(
 }
 
 /**
- * Robust Direct Thermal Print (58mm or 80mm):
+ * Creates a standard sample test ticket for calibrating POS thermal printers
+ * across 80mm, 58mm, or 57mm roll sizes.
+ */
+export function createSampleTestTicket(paperWidth?: PosPaperFormat): SaleTicket {
+  const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+
+  return {
+    id: `test-${Date.now()}`,
+    ticketNumber: `#TEST-${format.toUpperCase()}`,
+    timestamp: `Hoy, ${hours}:${minutes}:${seconds} COT`,
+    date: now.toISOString().split('T')[0],
+    cashierId: 'c-admin',
+    cashierName: 'Administrador POS',
+    customerName: 'Prueba Calibración Impresora',
+    customerDoc: '901.845.293-4',
+    items: [
+      {
+        product: {
+          id: 'p-test-1',
+          name: `Prueba Rollo Térmico ${format}`,
+          category: 'Configuración Sistema',
+          price: 25000,
+          costPrice: 12000,
+          stock: 99,
+          minStock: 5,
+          sku: `ROLLO-${format}`,
+          barcode: '7701234567890',
+          taxRate: 0.19,
+        },
+        quantity: 1,
+        discountPercent: 0,
+      },
+      {
+        product: {
+          id: 'p-test-2',
+          name: 'Calibración Ancho de Página',
+          category: 'Accesorios & Joyería',
+          price: 15000,
+          costPrice: 8000,
+          stock: 50,
+          minStock: 6,
+          sku: 'CALIB-POS-01',
+          barcode: '7709876543210',
+          taxRate: 0.19,
+        },
+        quantity: 2,
+        discountPercent: 0,
+      },
+    ],
+    subtotal: 46218,
+    taxTotal: 8782,
+    discountTotal: 0,
+    total: 55000,
+    paymentMethod: 'efectivo',
+    amountPaid: 60000,
+    changeReturned: 5000,
+    status: 'completada',
+  };
+}
+
+/**
+ * Fires a calibrated test ticket print matching the requested format (or stored default).
+ */
+export function printTestTicket(format?: PosPaperFormat, options?: PrintReceiptOptions): Promise<boolean> {
+  const targetFmt = format || getStoredPaperFormat();
+  const testTicket = createSampleTestTicket(targetFmt);
+  return printThermalReceipt(testTicket, {
+    paperWidth: targetFmt,
+    onSuccess: options?.onSuccess,
+    onError: options?.onError,
+  });
+}
+
+/**
+ * Robust Direct Thermal Print (80mm, 58mm, or 57mm):
  * Uses clean isolated portal printing directly in the DOM,
  * guaranteeing exactly 1 single sheet prints with zero blank pages.
  */
@@ -412,7 +575,7 @@ export function printTicket58mm(ticket: SaleTicket, options?: PrintReceiptOption
 export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOptions): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const paperWidth = options?.paperWidth || '58mm';
+      const paperWidth: PosPaperFormat = options?.paperWidth || getStoredPaperFormat();
       const receiptHtml = generateThermalReceiptHtml(ticket, paperWidth);
       executePortalPrint(receiptHtml, paperWidth, () => {
         options?.onSuccess?.();
@@ -434,11 +597,12 @@ export function printThermalReceipt(ticket: SaleTicket, options?: PrintReceiptOp
  */
 export function printViaDirectPortal(
   ticket: SaleTicket,
-  paperWidth: '58mm' | '80mm' = '58mm',
+  paperWidth?: PosPaperFormat,
   onDone?: () => void
 ): void {
-  const fullHtml = generateThermalReceiptHtml(ticket, paperWidth);
-  executePortalPrint(fullHtml, paperWidth, onDone);
+  const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+  const fullHtml = generateThermalReceiptHtml(ticket, format);
+  executePortalPrint(fullHtml, format, onDone);
 }
 
 export interface ReportXData {
@@ -463,11 +627,15 @@ export interface ReportXData {
 }
 
 /**
- * Generates the clean HTML markup of a 58mm Reporte X (partial cash audit) thermal receipt.
+ * Generates the clean HTML markup of a Reporte X (80mm, 58mm, or 57mm) thermal receipt.
  */
-export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm' | '80mm' = '58mm'): string {
-  const widthMm = paperWidth === '80mm' ? '80mm' : '58mm';
-  const widthPx = paperWidth === '80mm' ? '300px' : '220px';
+export function generateReportXThermalHtml(data: ReportXData, paperWidth?: PosPaperFormat): string {
+  const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+  const is80mm = format === '80mm';
+  const is57mm = format === '57mm';
+  const widthMm = format;
+  const widthPx = is80mm ? '300px' : is57mm ? '216px' : '220px';
+  const baseFontSize = is80mm ? '12px' : is57mm ? '10px' : '10.5px';
 
   const now = new Date();
   const dateStr = data.currentDate || now.toLocaleDateString('es-CO');
@@ -546,7 +714,7 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
       background: #ffffff !important;
       color: #000000 !important;
       font-family: 'JetBrains Mono', 'Courier New', Courier, monospace;
-      font-size: 11px;
+      font-size: ${baseFontSize};
       line-height: 1.25;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -555,7 +723,7 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
       width: 100%;
       max-width: ${widthPx};
       margin: 0 auto;
-      padding: 4px 6px 8px 6px;
+      padding: ${is80mm ? '4px 6px 8px 6px' : is57mm ? '1mm 1.5mm 3mm 1.5mm' : '2px 4px 6px 4px'};
       page-break-after: avoid !important;
       break-after: avoid !important;
       page-break-before: avoid !important;
@@ -588,8 +756,8 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
       <div style="font-size: 9px; margin-top: 2px;">NIT: 901.845.293-4 • RÉGIMEN COMÚN</div>
       <div style="font-size: 9px;">Cra. 15 # 85-32, Bogotá D.C.</div>
       <div style="font-size: 9px;">Tel: (+57) 314 892 0104</div>
-      <div style="font-size: 12px; font-weight: 900; margin-top: 5px; padding: 2px 4px; background: #eee; display: inline-block;">
-        *** INFORME PARCIAL X (58mm) ***
+      <div style="font-size: 11px; font-weight: 900; margin-top: 4px; padding: 2px 4px; background: #eee; border: 1px solid #ccc; display: inline-block;">
+        *** INFORME PARCIAL X (${widthMm}) ***
       </div>
       <div style="font-size: 9px; font-weight: bold; margin-top: 2px; color: #333;">
         ARQUEO DE CAJA EN VIVO (TURNO ACTIVO)
@@ -710,13 +878,13 @@ export function generateReportXThermalHtml(data: ReportXData, paperWidth: '58mm'
 }
 
 /**
- * Robust 58mm / 80mm Thermal Print for Reporte X (Partial Cash Drawer Audit).
+ * Robust Thermal Print for Reporte X (Partial Cash Drawer Audit) in 80mm, 58mm, or 57mm.
  * Guarantees exactly 1 single sheet prints with zero blank trailing pages.
  */
 export function printReportX58mm(data: ReportXData, options?: PrintReceiptOptions): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      const paperWidth = options?.paperWidth || '58mm';
+      const paperWidth: PosPaperFormat = options?.paperWidth || getStoredPaperFormat();
       const receiptHtml = generateReportXThermalHtml(data, paperWidth);
       executePortalPrint(receiptHtml, paperWidth, () => {
         options?.onSuccess?.();
@@ -732,9 +900,10 @@ export function printReportX58mm(data: ReportXData, options?: PrintReceiptOption
 
 export function printReportXViaPortal(
   data: ReportXData,
-  paperWidth: '58mm' | '80mm' = '58mm',
+  paperWidth?: PosPaperFormat,
   onDone?: () => void
 ): void {
-  const fullHtml = generateReportXThermalHtml(data, paperWidth);
-  executePortalPrint(fullHtml, paperWidth, onDone);
+  const format: PosPaperFormat = paperWidth || getStoredPaperFormat();
+  const fullHtml = generateReportXThermalHtml(data, format);
+  executePortalPrint(fullHtml, format, onDone);
 }

@@ -110,6 +110,43 @@
     break-inside: avoid !important;
   }
 
+  /* Paper Format Specific Container Widths & Strict POS Alignment */
+  body.is-printing-80mm #pos-print-portal,
+  #pos-print-portal.pos-portal-80mm,
+  #pos-print-portal.pos-width-80mm,
+  #pos-print-portal.paper-format-80mm,
+  #pos-print-portal .receipt-container-80mm,
+  #thermal-receipt-printable.pos-width-80mm,
+  #thermal-receipt-printable.paper-format-80mm,
+  #thermal-receipt-printable[data-paper-format="80mm"] {
+    width: 80mm !important;
+    max-width: 80mm !important;
+  }
+
+  body.is-printing-58mm #pos-print-portal,
+  #pos-print-portal.pos-portal-58mm,
+  #pos-print-portal.pos-width-58mm,
+  #pos-print-portal.paper-format-58mm,
+  #pos-print-portal .receipt-container-58mm,
+  #thermal-receipt-printable.pos-width-58mm,
+  #thermal-receipt-printable.paper-format-58mm,
+  #thermal-receipt-printable[data-paper-format="58mm"] {
+    width: 58mm !important;
+    max-width: 58mm !important;
+  }
+
+  body.is-printing-57mm #pos-print-portal,
+  #pos-print-portal.pos-portal-57mm,
+  #pos-print-portal.pos-width-57mm,
+  #pos-print-portal.paper-format-57mm,
+  #pos-print-portal .receipt-container-57mm,
+  #thermal-receipt-printable.pos-width-57mm,
+  #thermal-receipt-printable.paper-format-57mm,
+  #thermal-receipt-printable[data-paper-format="57mm"] {
+    width: 57mm !important;
+    max-width: 57mm !important;
+  }
+
   /* Fallback: Direct print from ThermalReceipt modal without portal (e.g. keyboard Ctrl+P) */
   body:not(.is-printing-ticket):has(#thermal-receipt-printable) #root > div > *:not(:has(#thermal-receipt-printable)) {
     display: none !important;

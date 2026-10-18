@@ -1,8 +1,10 @@
-import React, { useState, useMemo } from 'react';
-import { Product } from '../types/pos';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Product, PosPaperFormat } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
+import { PrintFormatSettings } from './PrintFormatSettings';
+import { getStoredPaperFormat } from '../utils/printReceipt';
 import {
   GlobalThresholdSettings,
   getStoredThresholdSettings,
@@ -53,6 +55,22 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const [showGlobalThresholdsModal, setShowGlobalThresholdsModal] = useState<boolean>(false);
   const [thresholdModalTab, setThresholdModalTab] = useState<'accessories' | 'all'>('accessories');
   const [thresholdCategorySearch, setThresholdCategorySearch] = useState<string>('');
+
+  // Permanent Ticket Printing Format Configuration (80mm, 58mm, 57mm)
+  const [activePaperFormat, setActivePaperFormat] = useState<PosPaperFormat>(() => getStoredPaperFormat());
+  const [showPrintFormatModal, setShowPrintFormatModal] = useState<boolean>(false);
+  const [showPrintFormatSection, setShowPrintFormatSection] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFormatChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ format: PosPaperFormat }>;
+      if (customEvent.detail?.format) {
+        setActivePaperFormat(customEvent.detail.format);
+      }
+    };
+    window.addEventListener('pos_paper_format_changed', handleFormatChange);
+    return () => window.removeEventListener('pos_paper_format_changed', handleFormatChange);
+  }, []);
 
   // In-Panel Mass Threshold Management Section state
   const [showMassThresholdSection, setShowMassThresholdSection] = useState<boolean>(true);
@@ -684,6 +702,36 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             </span>
           </button>
 
+          {/* In-Panel Permanent Ticket Printing Format Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              posAudio.playKeyClick();
+              setShowPrintFormatSection((prev) => !prev);
+            }}
+            title="Configurar permanentemente formato de impresión de ticket entre 80mm, 58mm y 57mm"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer ${
+              showPrintFormatSection
+                ? 'bg-sky-500 text-black border-sky-400 ring-2 ring-sky-500/30 shadow-sky-950/40'
+                : 'bg-sky-500/20 hover:bg-sky-500 text-sky-300 hover:text-black border-sky-500/40'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[17px]">
+              {showPrintFormatSection ? 'keyboard_arrow_up' : 'print'}
+            </span>
+            <span className="hidden sm:inline">
+              {showPrintFormatSection ? 'Ocultar Formato Ticket' : 'Formato de Impresión'}
+            </span>
+            <span className="sm:hidden">Ticket:</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                showPrintFormatSection ? 'bg-black text-sky-300' : 'bg-sky-500/40 text-sky-100'
+              }`}
+            >
+              {activePaperFormat}
+            </span>
+          </button>
+
           {/* Export / Backup JSON Button */}
           {onOpenBackupModal && (
             <button
@@ -746,6 +794,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* SECCIÓN DENTRO DEL PANEL: Configuración Permanente de Formato de Ticket (80mm, 58mm, 57mm) */}
+      {showPrintFormatSection && (
+        <section
+          aria-label="Configuración de Formato de Impresión Térmica"
+          className="transition-all duration-300 animate-fadeIn"
+        >
+          <PrintFormatSettings onClose={() => setShowPrintFormatSection(false)} />
+        </section>
+      )}
 
       {/* SECCIÓN DENTRO DEL PANEL: Gestión Masiva de Umbrales de Stock Mínimo para Accesorios */}
       {showMassThresholdSection && (
@@ -2812,6 +2870,14 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           { label: 'Código Barras', code: '770200102045' },
         ]}
       />
+
+      {/* Dedicated Print Format Settings Modal */}
+      {showPrintFormatModal && (
+        <PrintFormatSettings
+          isModal
+          onClose={() => setShowPrintFormatModal(false)}
+        />
+      )}
     </div>
   );
 };

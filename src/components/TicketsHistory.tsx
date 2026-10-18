@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { SaleTicket } from '../types/pos';
+import React, { useState, useEffect } from 'react';
+import { SaleTicket, PosPaperFormat } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
 import { ThermalReceipt } from './ThermalReceipt';
-import { printTicket58mm } from '../utils/printReceipt';
+import { printTicket58mm, getStoredPaperFormat, setStoredPaperFormat } from '../utils/printReceipt';
 
 interface TicketsHistoryProps {
   tickets: SaleTicket[];
@@ -23,6 +23,26 @@ export const TicketsHistory: React.FC<TicketsHistoryProps> = ({
   const [voidError, setVoidError] = useState<string>('');
   const [printingTicketId, setPrintingTicketId] = useState<string | null>(null);
   const [printFeedback, setPrintFeedback] = useState<string | null>(null);
+  const [activeFormat, setActiveFormat] = useState<PosPaperFormat>(() => getStoredPaperFormat());
+
+  useEffect(() => {
+    const handleFormatChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ format: PosPaperFormat }>;
+      if (customEvent.detail?.format) {
+        setActiveFormat(customEvent.detail.format);
+      }
+    };
+    window.addEventListener('pos_paper_format_changed', handleFormatChange);
+    return () => window.removeEventListener('pos_paper_format_changed', handleFormatChange);
+  }, []);
+
+  const handleSwitchFormat = (fmt: PosPaperFormat) => {
+    posAudio.playKeyClick();
+    setActiveFormat(fmt);
+    setStoredPaperFormat(fmt);
+    setPrintFeedback(`Formato de rollo cambiado a ${fmt} (guardado)`);
+    setTimeout(() => setPrintFeedback(null), 2500);
+  };
 
   const filtered = tickets.filter((t) => {
     return (
@@ -52,14 +72,15 @@ export const TicketsHistory: React.FC<TicketsHistoryProps> = ({
     e.stopPropagation();
     posAudio.playKeyClick();
     setPrintingTicketId(ticket.id);
-    setPrintFeedback(`Enviando ${ticket.ticketNumber} a formato térmico 58mm...`);
+    const currentFmt = getStoredPaperFormat();
+    setPrintFeedback(`Enviando ${ticket.ticketNumber} a formato térmico ${currentFmt}...`);
 
     try {
       await printTicket58mm(ticket, {
-        paperWidth: '58mm',
+        paperWidth: currentFmt,
         onSuccess: () => {
           posAudio.playCashRegisterChime();
-          setPrintFeedback(`✓ Ticket ${ticket.ticketNumber} enviado a impresora 58mm`);
+          setPrintFeedback(`✓ Ticket ${ticket.ticketNumber} impreso en 1 sola hoja (${currentFmt})`);
         },
       });
     } catch (err) {
@@ -69,7 +90,7 @@ export const TicketsHistory: React.FC<TicketsHistoryProps> = ({
     } finally {
       setTimeout(() => {
         setPrintingTicketId(null);
-        setTimeout(() => setPrintFeedback(null), 3000);
+        setTimeout(() => setPrintFeedback(null), 3500);
       }, 700);
     }
   };
@@ -89,11 +110,30 @@ export const TicketsHistory: React.FC<TicketsHistoryProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-3 text-xs font-mono text-[#e6bdb8]">
-          <span className="flex items-center gap-1.5 hidden sm:flex">
-            <span className="material-symbols-outlined text-[16px] text-[#10b981]">print</span>
-            <span>Térmica 58mm Activa</span>
-          </span>
+        <div className="flex items-center gap-3 text-xs font-mono text-[#e6bdb8] flex-wrap">
+          {/* Format quick switcher */}
+          <div className="flex items-center bg-[#141b2b] p-0.5 rounded-lg border border-[#374151]/60 text-[11px] font-mono shadow-inner">
+            <span className="px-2 text-[10px] text-[#adc6ff] font-semibold flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px] text-[#10b981]">print</span>
+              <span>Rollo:</span>
+            </span>
+            {(['57mm', '58mm', '80mm'] as const).map((fmt) => (
+              <button
+                key={fmt}
+                type="button"
+                onClick={() => handleSwitchFormat(fmt)}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                  activeFormat === fmt
+                    ? 'bg-[#dc2626] text-white shadow-sm'
+                    : 'text-[#e6bdb8] hover:text-white hover:bg-[#232a3a]'
+                }`}
+                title={`Cambiar formato predeterminado a ${fmt}`}
+              >
+                {fmt}
+              </button>
+            ))}
+          </div>
+
           <span className="bg-[#141b2b] px-2.5 py-1 rounded-lg border border-[#374151]/30">
             Comprobantes: <strong className="text-white">{tickets.length}</strong>
           </span>

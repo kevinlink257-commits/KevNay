@@ -34,6 +34,8 @@ export interface CartItem {
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'qr_transfer' | 'mixto';
 
+export type PosPaperFormat = '80mm' | '58mm' | '57mm';
+
 export interface SaleTicket {
   id: string;
   ticketNumber: string; // e.g. '#T-1025'

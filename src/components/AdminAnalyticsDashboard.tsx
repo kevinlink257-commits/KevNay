@@ -24,6 +24,7 @@ import {
 } from '../utils/analytics';
 import { posAudio } from '../utils/audio';
 import { StoreOperatingHoursSection } from './StoreOperatingHoursSection';
+import { PrintFormatSettings } from './PrintFormatSettings';
 import {
   checkIsWithinOperatingHours,
   DEFAULT_OPERATING_HOURS,
@@ -53,7 +54,7 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
   // View states
   const [salesChartType, setSalesChartType] = useState<'area' | 'bar'>('area');
   const [productRankingBy, setProductRankingBy] = useState<'units' | 'revenue'>('units');
-  const [activeTabSection, setActiveTabSection] = useState<'overview' | 'products' | 'daily' | 'schedule'>('overview');
+  const [activeTabSection, setActiveTabSection] = useState<'overview' | 'products' | 'daily' | 'schedule' | 'settings'>('overview');
   const [downloadSuccessNotice, setDownloadSuccessNotice] = useState<boolean>(false);
 
   // Calculate metrics based on current tickets and catalog
@@ -377,6 +378,23 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
             )
           ) : null}
         </button>
+
+        {/* 5. Ajustes de Impresión / Formato de Tickets */}
+        <button
+          type="button"
+          onClick={() => {
+            posAudio.playKeyClick();
+            setActiveTabSection('settings');
+          }}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-colors whitespace-nowrap border ${
+            activeTabSection === 'settings'
+              ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm'
+              : 'text-sky-400 hover:text-white border-transparent'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[16px]">print</span>
+          <span>Ajustes de Impresión</span>
+        </button>
       </div>
 
       {/* RENDER HORARIO OPERATIVO SECTION */}
@@ -388,8 +406,13 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
         />
       )}
 
+      {/* RENDER AJUSTES DE IMPRESIÓN Y FORMATO DE TICKETS (80mm, 58mm, 57mm) */}
+      {activeTabSection === 'settings' && (
+        <PrintFormatSettings />
+      )}
+
       {/* RENDER ANALYTICS CHARTS & KPI VIEW */}
-      {activeTabSection !== 'schedule' && (
+      {activeTabSection !== 'schedule' && activeTabSection !== 'settings' && (
         <>
           {/* Quick Horario Operativo Summary Strip on Overview */}
           {activeTabSection === 'overview' && (
