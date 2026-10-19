@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { posAudio } from '../utils/audio';
 
 export const CASHIER_AVATAR_PRESETS = [
@@ -57,14 +57,17 @@ export const CashierAvatarPicker: React.FC<CashierAvatarPickerProps> = ({
   cashierName = 'Cajero',
   themeColor = 'sky',
 }) => {
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Por favor selecciona un archivo de imagen válido (JPG, PNG, WebP).');
+      posAudio.playErrorBuzz();
+      setUploadError('Por favor selecciona un archivo de imagen válido (JPG, PNG, WebP).');
       return;
     }
 
@@ -164,6 +167,10 @@ export const CashierAvatarPicker: React.FC<CashierAvatarPickerProps> = ({
               </button>
             )}
           </div>
+
+          {uploadError && (
+            <p className="text-[11px] text-[#ef4444] font-medium">{uploadError}</p>
+          )}
 
           <div className="relative">
             <input

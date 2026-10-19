@@ -31,13 +31,11 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleResetStorage = () => {
-    if (window.confirm('¿Deseas restablecer los datos locales de la terminal para solucionar el problema? Se conservarán los datos iniciales por defecto.')) {
-      try {
-        localStorage.clear();
-        sessionStorage.clear();
-      } catch {}
-      window.location.reload();
-    }
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {}
+    window.location.reload();
   };
 
   public render() {

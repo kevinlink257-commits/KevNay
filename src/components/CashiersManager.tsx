@@ -32,6 +32,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null);
   const [cashierToDelete, setCashierToDelete] = useState<Cashier | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showAdminEditModal, setShowAdminEditModal] = useState<boolean>(false);
   const [visiblePinIds, setVisiblePinIds] = useState<Record<string, boolean>>({});
   const [inlineGatePin, setInlineGatePin] = useState<string>('');
@@ -250,15 +251,13 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
     if (cashierToDelete.isMaster) {
       posAudio.playErrorBuzz();
-      alert('No se puede eliminar la cuenta de Administrador General.');
-      setCashierToDelete(null);
+      setDeleteError('No se puede eliminar la cuenta de Administrador General.');
       return;
     }
 
     if (cashierToDelete.id === currentCashier.id) {
       posAudio.playErrorBuzz();
-      alert('No puedes eliminar al operador que tiene la sesión activa actualmente.');
-      setCashierToDelete(null);
+      setDeleteError('No puedes eliminar al operador que tiene la sesión activa actualmente.');
       return;
     }
 
@@ -266,6 +265,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
     posAudio.playKeyClick();
     onLogAudit('lock', `Cajero ${cashierToDelete.name} (${cashierToDelete.code}) eliminado del sistema`);
     setCashierToDelete(null);
+    setDeleteError(null);
   };
 
   const standardCashiers = cashiers.filter((c) => !c.isMaster);
@@ -1093,10 +1093,20 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
               <strong className="text-white">{cashierToDelete.name}</strong> ({cashierToDelete.code})? Sus accesos y contraseñas serán revocados inmediatamente.
             </p>
 
+            {deleteError && (
+              <div className="bg-[#dc2626]/20 border border-[#dc2626]/50 rounded-xl p-3 text-xs text-[#fca5a5] flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-[#ef4444]">error</span>
+                <span>{deleteError}</span>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setCashierToDelete(null)}
+                onClick={() => {
+                  setCashierToDelete(null);
+                  setDeleteError(null);
+                }}
                 className="flex-1 py-2.5 rounded-xl bg-[#232a3a] hover:bg-[#323949] text-xs font-semibold text-[#dce2f7] transition-colors"
               >
                 Cancelar

@@ -55,6 +55,7 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
   const [showOutOfHoursWarningModal, setShowOutOfHoursWarningModal] = useState<boolean>(false);
   const [supervisorPinInput, setSupervisorPinInput] = useState<string>('');
   const [pinErrorNotice, setPinErrorNotice] = useState<boolean>(false);
+  const [scanErrorToast, setScanErrorToast] = useState<string | null>(null);
 
   // Real-time evaluation of operating hours
   const operatingStatus = useMemo(() => {
@@ -175,9 +176,11 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
       posAudio.playScanBeep();
       addToCart(found);
       setShowScannerModal(false);
+      setScanErrorToast(null);
     } else {
       posAudio.playErrorBuzz();
-      alert(`Código o guía "${scannedCode}" no encontrado en catálogo.`);
+      setScanErrorToast(`Código o guía "${scannedCode}" no encontrado en catálogo.`);
+      setTimeout(() => setScanErrorToast(null), 4000);
     }
   };
 
@@ -1269,6 +1272,14 @@ export const PosRegister: React.FC<PosRegisterProps> = ({
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
       />
+
+      {/* Barcode scanner error toast */}
+      {scanErrorToast && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 bg-[#dc2626] text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold animate-pulse border border-red-400/40">
+          <span className="material-symbols-outlined text-[18px]">error</span>
+          <span>{scanErrorToast}</span>
+        </div>
+      )}
     </div>
   );
 };

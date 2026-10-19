@@ -78,11 +78,13 @@ export default function App() {
         // If stored inventory lacks accessory items, append them so they are readily available
         const hasAccessories = loaded.some(
           (p) =>
-            p.category.includes('Joyería') ||
-            p.category.includes('Collares') ||
-            p.category.includes('Relojes') ||
-            p.category.includes('Pulseras') ||
-            p.category.includes('Accesorios')
+            p &&
+            typeof p.category === 'string' &&
+            (p.category.includes('Joyería') ||
+              p.category.includes('Collares') ||
+              p.category.includes('Relojes') ||
+              p.category.includes('Pulseras') ||
+              p.category.includes('Accesorios'))
         );
         if (!hasAccessories) {
           const accItems = INITIAL_PRODUCTS.filter((p) => p.id.startsWith('acc-'));
