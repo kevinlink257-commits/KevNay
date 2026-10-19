@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Cashier, AuditEvent } from '../types/pos';
 import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
+import { CashierAvatarPicker } from './CashierAvatarPicker';
 
 interface CashiersManagerProps {
   cashiers: Cashier[];
@@ -44,6 +45,9 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   const [newConfirmPin, setNewConfirmPin] = useState<string>('');
   const [newDrawerCash, setNewDrawerCash] = useState<number>(300000);
   const [newNfcCardId, setNewNfcCardId] = useState<string>('');
+  const [newAvatar, setNewAvatar] = useState<string>(
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+  );
   const [createError, setCreateError] = useState<string>('');
 
   // Admin Self-Edit Form State
@@ -66,6 +70,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   const [adminPin, setAdminPin] = useState<string>(adminCashier.pin);
   const [adminConfirmPin, setAdminConfirmPin] = useState<string>(adminCashier.pin);
   const [adminNfcCardId, setAdminNfcCardId] = useState<string>(adminCashier.nfcCardId || 'NFC-MASTER-0001');
+  const [adminAvatar, setAdminAvatar] = useState<string>(adminCashier.avatar);
   const [adminEditError, setAdminEditError] = useState<string>('');
 
   // Edit Cashier Form State
@@ -73,6 +78,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
   const [editRole, setEditRole] = useState<string>('');
   const [editPin, setEditPin] = useState<string>('');
   const [editNfcCardId, setEditNfcCardId] = useState<string>('');
+  const [editAvatar, setEditAvatar] = useState<string>('');
   const [editError, setEditError] = useState<string>('');
 
   const togglePinVisibility = (id: string) => {
@@ -88,6 +94,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
       setAdminPin(cashier.pin);
       setAdminConfirmPin(cashier.pin);
       setAdminNfcCardId(cashier.nfcCardId || 'NFC-MASTER-0001');
+      setAdminAvatar(cashier.avatar || adminCashier.avatar);
       setAdminEditError('');
       setShowAdminEditModal(true);
       return;
@@ -98,6 +105,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
     setEditRole(cashier.role);
     setEditPin(cashier.pin);
     setEditNfcCardId(cashier.nfcCardId || '');
+    setEditAvatar(cashier.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80');
     setEditError('');
   };
 
@@ -120,6 +128,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
       name: editName.trim(),
       role: editRole.trim() || editingCashier.role,
       pin: editPin.trim(),
+      avatar: editAvatar.trim() || editingCashier.avatar,
       nfcCardId: editNfcCardId.trim() || editingCashier.nfcCardId,
       initials: editName
         .trim()
@@ -132,7 +141,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
     onUpdateCashier(updated);
     posAudio.playSuccessChime();
-    onLogAudit('lock', `Usuario ${updated.name} actualizado por administrador`);
+    onLogAudit('lock', `Usuario ${updated.name} (perfil y foto) actualizado por administrador`);
     setEditingCashier(null);
   };
 
@@ -157,6 +166,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
       name: adminName.trim(),
       code: adminCode.trim() || 'ADMIN',
       pin: adminPin.trim(),
+      avatar: adminAvatar.trim() || adminCashier.avatar,
       nfcCardId: adminNfcCardId.trim() || 'NFC-MASTER-0001',
       initials: adminName
         .trim()
@@ -169,7 +179,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
     onUpdateCashier(updatedAdmin);
     posAudio.playSuccessChime();
-    onLogAudit('unlock_supervisor', `Credenciales del Administrador modificadas por ${updatedAdmin.name}`);
+    onLogAudit('unlock_supervisor', `Credenciales y foto del Administrador modificadas por ${updatedAdmin.name}`);
     setShowAdminEditModal(false);
   };
 
@@ -211,7 +221,9 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
       role: newRole.trim() || 'Cajero de Turno',
       initials: cleanInitials,
       pin: newPin.trim(),
-      avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+      avatar:
+        newAvatar.trim() ||
+        `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
       drawerCash: Number(newDrawerCash) || 200000,
       completedTickets: 0,
       nfcCardId: generatedNfc,
@@ -228,6 +240,7 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
     setNewPin('');
     setNewConfirmPin('');
     setNewNfcCardId('');
+    setNewAvatar('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80');
     setShowCreateModal(false);
   };
 
@@ -420,17 +433,35 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="relative w-14 h-14 rounded-2xl bg-[#232a3a] overflow-hidden border-2 border-[#f59e0b]/60 shadow-md">
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setAdminName(adminCashier.name);
+                setAdminCode(adminCashier.code);
+                setAdminPin(adminCashier.pin);
+                setAdminConfirmPin(adminCashier.pin);
+                setAdminNfcCardId(adminCashier.nfcCardId || 'NFC-MASTER-0001');
+                setAdminAvatar(adminCashier.avatar);
+                setAdminEditError('');
+                setShowAdminEditModal(true);
+              }}
+              title="Haz clic para editar perfil y cambiar foto de Administrador"
+              className="relative w-14 h-14 rounded-2xl bg-[#232a3a] overflow-hidden border-2 border-[#f59e0b]/60 shadow-md group cursor-pointer"
+            >
               <img
                 src={adminCashier.avatar}
                 alt={adminCashier.name}
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
               />
+              <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-amber-300">
+                <span className="material-symbols-outlined text-[20px]">photo_camera</span>
+              </span>
               <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-[#f59e0b] rounded-full ring-2 ring-[#191f2f] flex items-center justify-center">
                 <span className="material-symbols-outlined text-[9px] text-[#3d2400]">star</span>
               </span>
-            </div>
+            </button>
 
             <div>
               <div className="flex items-center gap-2">
@@ -551,17 +582,28 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
                   {/* Top info row */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="relative w-11 h-11 rounded-xl bg-[#232a3a] overflow-hidden border border-[#374151]/50">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          posAudio.playKeyClick();
+                          handleStartEdit(cashier);
+                        }}
+                        title="Haz clic para editar perfil y foto de este cajero"
+                        className="relative w-11 h-11 rounded-xl bg-[#232a3a] overflow-hidden border border-[#374151]/50 group cursor-pointer shrink-0"
+                      >
                         <img
                           src={cashier.avatar}
                           alt={cashier.name}
                           referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
+                        <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                          <span className="material-symbols-outlined text-[16px]">photo_camera</span>
+                        </span>
                         {isCurrent && (
                           <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#10b981] rounded-full ring-2 ring-[#191f2f]"></span>
                         )}
-                      </div>
+                      </button>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-bold text-white truncate">{cashier.name}</span>
@@ -706,6 +748,14 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
                 />
               </div>
 
+              {/* Photo Selector */}
+              <CashierAvatarPicker
+                currentAvatar={newAvatar}
+                onChangeAvatar={setNewAvatar}
+                cashierName={newName || 'Nuevo Cajero'}
+                themeColor="red"
+              />
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-[#e6bdb8] block mb-1">Código Terminal</label>
@@ -814,17 +864,17 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
       {/* EDIT STANDARD CASHIER MODAL */}
       {editingCashier && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-5 w-full max-w-md shadow-2xl flex flex-col space-y-4">
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#191f2f] border border-[#374151]/60 rounded-2xl p-5 w-full max-w-md shadow-2xl flex flex-col space-y-4 max-h-[90vh] overflow-y-auto my-auto">
             <div className="flex items-center justify-between pb-2 border-b border-[#374151]/40">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#adc6ff] text-[22px]">manage_accounts</span>
-                <span className="font-bold text-base text-white">Editar Usuario Cajero</span>
+                <span className="font-bold text-base text-white">Editar Perfil & Foto del Cajero</span>
               </div>
               <button
                 type="button"
                 onClick={() => setEditingCashier(null)}
-                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center"
+                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
@@ -841,6 +891,14 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
                   className="w-full bg-[#141b2b] border border-[#374151]/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#adc6ff]"
                 />
               </div>
+
+              {/* Avatar Photo Selector */}
+              <CashierAvatarPicker
+                currentAvatar={editAvatar}
+                onChangeAvatar={setEditAvatar}
+                cashierName={editName}
+                themeColor="sky"
+              />
 
               <div>
                 <label className="text-xs text-[#e6bdb8] block mb-1">Rol / Turno</label>
@@ -904,24 +962,24 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
 
       {/* EDIT ADMINISTRATOR CREDENTIALS MODAL */}
       {showAdminEditModal && (
-        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#191f2f] border-2 border-[#f59e0b]/50 rounded-2xl p-5 w-full max-w-md shadow-2xl flex flex-col space-y-4">
+        <div className="fixed inset-0 z-50 bg-[#0c1322]/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#191f2f] border-2 border-[#f59e0b]/50 rounded-2xl p-5 w-full max-w-md shadow-2xl flex flex-col space-y-4 max-h-[90vh] overflow-y-auto my-auto">
             <div className="flex items-center justify-between pb-2 border-b border-[#374151]/40">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#f59e0b] text-[24px]">shield</span>
-                <span className="font-bold text-base text-white">Credenciales del Administrador</span>
+                <span className="font-bold text-base text-white">Perfil & Foto del Administrador</span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAdminEditModal(false)}
-                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center"
+                className="w-7 h-7 rounded-full bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
             <p className="text-xs text-[#e6bdb8]">
-              Modifica tu nombre de acceso administrativo y tu contraseña maestra. Como Administrador, eres el único con acceso total a toda la configuración, inventario y gestión de usuarios.
+              Modifica tu nombre de acceso administrativo, tu foto de perfil y tu contraseña maestra.
             </p>
 
             <form onSubmit={handleSaveAdminCredentials} className="space-y-3">
@@ -936,6 +994,14 @@ export const CashiersManager: React.FC<CashiersManagerProps> = ({
                   className="w-full bg-[#141b2b] border border-[#374151]/60 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#f59e0b]"
                 />
               </div>
+
+              {/* Avatar Photo Selector */}
+              <CashierAvatarPicker
+                currentAvatar={adminAvatar}
+                onChangeAvatar={setAdminAvatar}
+                cashierName={adminName}
+                themeColor="amber"
+              />
 
               <div>
                 <label className="text-xs text-[#e6bdb8] block mb-1">Código de Acceso</label>

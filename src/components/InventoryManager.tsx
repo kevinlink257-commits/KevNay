@@ -4,7 +4,13 @@ import { formatCOP } from '../utils/format';
 import { posAudio } from '../utils/audio';
 import { BarcodeCameraScanner } from './BarcodeCameraScanner';
 import { PrintFormatSettings } from './PrintFormatSettings';
+import { CategoryManagementModal } from './CategoryManagementModal';
 import { getStoredPaperFormat } from '../utils/printReceipt';
+import {
+  getAllActiveCategories,
+  CategoryInfo,
+  resolveCategoryIcon,
+} from '../utils/categoriesManager';
 import {
   GlobalThresholdSettings,
   getStoredThresholdSettings,
@@ -48,6 +54,11 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const [scannerOpen, setScannerOpen] = useState<boolean>(false);
   const [scannerMode, setScannerMode] = useState<'create_barcode' | 'search_filter'>('create_barcode');
 
+  // Category Manager & Foldable Filter Panel State
+  const [showCategoriesFilter, setShowCategoriesFilter] = useState<boolean>(false);
+  const [showCategoryModal, setShowCategoryModal] = useState<boolean>(false);
+  const [categoriesVersion, setCategoriesVersion] = useState<number>(0);
+
   // Global & Category Threshold Settings
   const [thresholdSettings, setThresholdSettings] = useState<GlobalThresholdSettings>(() =>
     getStoredThresholdSettings()
@@ -72,12 +83,51 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
     return () => window.removeEventListener('pos_paper_format_changed', handleFormatChange);
   }, []);
 
-  // In-Panel Mass Threshold Management Section state
-  const [showMassThresholdSection, setShowMassThresholdSection] = useState<boolean>(true);
+  // Listen to categories updates across modals and localStorage
+  useEffect(() => {
+    const onCategoriesUpdate = () => {
+      setCategoriesVersion((v) => v + 1);
+    };
+    window.addEventListener('pos_categories_changed', onCategoriesUpdate);
+    window.addEventListener('storage', onCategoriesUpdate);
+    return () => {
+      window.removeEventListener('pos_categories_changed', onCategoriesUpdate);
+      window.removeEventListener('storage', onCategoriesUpdate);
+    };
+  }, []);
+
+  // In-Panel Mass Threshold Management Section state (defaults to false so inventory is visible first!)
+  const [showMassThresholdSection, setShowMassThresholdSection] = useState<boolean>(false);
   const [sectionCategoryFilter, setSectionCategoryFilter] = useState<string>('all_accessories');
   const [sectionSearch, setSectionSearch] = useState<string>('');
   const [massThresholdInput, setMassThresholdInput] = useState<number>(6);
   const [expandedCategoryDetail, setExpandedCategoryDetail] = useState<string | null>(null);
+
+  // Warehouse Shipping & Logistics Cost State (Editable in Inversión de Almacén)
+  const [shippingCost, setShippingCost] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('pos_inventory_shipping_cost');
+      return saved !== null && !isNaN(Number(saved)) ? Math.max(0, Number(saved)) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [isEditingShipping, setIsEditingShipping] = useState<boolean>(false);
+  const [tempShippingInput, setTempShippingInput] = useState<string>('0');
+
+  const handleSaveShippingCost = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const parsed = Math.max(0, Number(tempShippingInput) || 0);
+    setShippingCost(parsed);
+    try {
+      localStorage.setItem('pos_inventory_shipping_cost', String(parsed));
+    } catch (err) {
+      console.error('Failed to save shipping cost:', err);
+    }
+    posAudio.playSuccessChime();
+    showToast(`Costo de envío / flete guardado: ${formatCOP(parsed)}`);
+    setIsEditingShipping(false);
+  };
 
   // Stock Adjustment modal state
   const [selectedProductForAdjust, setSelectedProductForAdjust] = useState<Product | null>(null);
@@ -127,13 +177,14 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
     }, 4000);
   };
 
-  // Dynamically compile all categories from default rules and existing products
+  // Compile all active categories dynamically from persistent rules, custom categories, and catalog
+  const activeCategoriesList = useMemo<CategoryInfo[]>(() => {
+    return getAllActiveCategories(products.map((p) => p.category));
+  }, [products, categoriesVersion]);
+
   const allKnownCategories = useMemo(() => {
-    const fromRules = ALL_DEFAULT_CATEGORY_RULES.map((r) => r.category);
-    const fromProducts = products.map((p) => p.category);
-    const set = new Set([...fromRules, ...fromProducts]);
-    return Array.from(set);
-  }, [products]);
+    return activeCategoriesList.map((c) => c.name);
+  }, [activeCategoriesList]);
 
   // Accessory categories list
   const accessoryCategories = useMemo(() => {
@@ -148,8 +199,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   // Metrics
   const totalItemsCount = products.reduce((acc, p) => acc + p.stock, 0);
   const totalCostValue = products.reduce((acc, p) => acc + p.costPrice * p.stock, 0);
+  const totalWarehouseInvestment = totalCostValue + shippingCost;
   const totalRetailValue = products.reduce((acc, p) => acc + p.price * p.stock, 0);
-  const estimatedProfit = totalRetailValue - totalCostValue;
+  const estimatedProfit = totalRetailValue - totalWarehouseInvestment;
   const avgGrossMargin = totalRetailValue > 0 ? ((estimatedProfit / totalRetailValue) * 100).toFixed(1) : '0';
 
   // Warnings Breakdown
@@ -497,22 +549,159 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           <span className="text-[10px] text-[#e6bdb8]/80 font-mono">{totalItemsCount} unidades físicas</span>
         </div>
 
-        <div className="bg-[#191f2f] border border-[#374151]/40 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-[#e6bdb8]">Valor a Costo</span>
-          <span className="text-xl font-bold font-mono text-[#90cdff] mt-0.5">{formatCOP(totalCostValue)}</span>
-          <span className="text-[10px] text-[#e6bdb8]/80 font-mono">Inversión en almacén</span>
+        {/* Recuadro Inversión en Almacén con Costo de Envío Editable */}
+        <div
+          className={`bg-[#191f2f] border rounded-xl p-3 flex flex-col justify-between transition-all relative ${
+            isEditingShipping
+              ? 'border-amber-500/80 shadow-lg ring-1 ring-amber-500/40 bg-gradient-to-b from-[#191f2f] to-[#141b2a]'
+              : 'border-[#374151]/40 hover:border-[#374151]'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] text-[#e6bdb8] flex items-center gap-1 font-semibold">
+                <span className="material-symbols-outlined text-[15px] text-[#90cdff]">warehouse</span>
+                <span>Inversión en Almacén</span>
+              </span>
+
+              {!isEditingShipping && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    posAudio.playKeyClick();
+                    setIsEditingShipping(true);
+                    setTempShippingInput(String(shippingCost));
+                  }}
+                  title="Editar costo de envío / flete logístico del inventario"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[#232a3a] hover:bg-[#323949] text-amber-300 hover:text-white border border-[#374151]/50 font-mono transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[13px]">local_shipping</span>
+                  <span>{shippingCost > 0 ? 'Editar Envío' : '+ Envío'}</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-xl font-bold font-mono text-[#90cdff]">
+                {formatCOP(totalWarehouseInvestment)}
+              </span>
+              {shippingCost > 0 && (
+                <span
+                  className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/20 px-1 py-0.2 rounded border border-amber-500/30"
+                  title="Suma del costo de productos más el costo de flete/envío"
+                >
+                  Total c/ Envío
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Inline Edit Form OR Summary Breakdown */}
+          {isEditingShipping ? (
+            <form
+              onSubmit={handleSaveShippingCost}
+              className="mt-2 pt-1.5 border-t border-amber-500/40 space-y-1.5 animate-fadeIn"
+            >
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-amber-300 font-bold flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[13px]">local_shipping</span>
+                  <span>Costo de Envío / Flete:</span>
+                </span>
+                <span className="text-[9px] text-[#e6bdb8] font-mono">COP</span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1">
+                  <span className="absolute left-2 top-1 text-xs text-[#e6bdb8] font-mono">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={tempShippingInput}
+                    onChange={(e) => setTempShippingInput(e.target.value)}
+                    placeholder="0"
+                    autoFocus
+                    className="w-full bg-[#0c1322] border border-amber-500/60 rounded px-2 pl-5 py-0.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  title="Guardar costo de envío"
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingShipping(false)}
+                  className="px-1.5 py-1 rounded bg-[#232a3a] hover:bg-[#323949] text-[#e6bdb8] hover:text-white text-xs transition-colors cursor-pointer"
+                  title="Cancelar"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex items-center gap-1 pt-0.5 overflow-x-auto no-scrollbar">
+                <span className="text-[9px] text-[#e6bdb8] font-mono">Fijar:</span>
+                {[0, 20000, 50000, 100000, 200000].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setTempShippingInput(String(preset))}
+                    className={`text-[9px] font-mono px-1.5 py-0.2 rounded border transition-colors cursor-pointer ${
+                      tempShippingInput === String(preset)
+                        ? 'bg-amber-500 text-black font-bold border-amber-400'
+                        : 'bg-[#0c1322] hover:bg-[#232a3a] text-[#adc6ff] border-[#374151]/40'
+                    }`}
+                  >
+                    {preset === 0 ? '$0' : `$${preset / 1000}k`}
+                  </button>
+                ))}
+              </div>
+            </form>
+          ) : (
+            <div className="mt-1.5 pt-1 border-t border-[#374151]/30 flex flex-wrap items-center justify-between text-[10px] text-[#e6bdb8] font-mono">
+              <span title="Costo neto de la mercancía física en stock">
+                Mercancía: <strong className="text-white">{formatCOP(totalCostValue)}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setIsEditingShipping(true);
+                  setTempShippingInput(String(shippingCost));
+                }}
+                className="flex items-center gap-0.5 text-amber-300 hover:text-white transition-colors cursor-pointer"
+                title="Haz clic para editar el costo de envío"
+              >
+                <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                <span>Envío: <strong>{formatCOP(shippingCost)}</strong></span>
+                <span className="material-symbols-outlined text-[11px]">edit</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="bg-[#191f2f] border border-[#374151]/40 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-[#e6bdb8]">Valor Estimado Venta</span>
-          <span className="text-xl font-bold font-mono text-[#10b981] mt-0.5">{formatCOP(totalRetailValue)}</span>
-          <span className="text-[10px] text-[#e6bdb8]/80 font-mono">P.V.P Total</span>
+        <div className="bg-[#191f2f] border border-[#374151]/40 rounded-xl p-3 flex flex-col justify-between">
+          <div>
+            <span className="text-[11px] text-[#e6bdb8]">Valor Estimado Venta</span>
+            <span className="text-xl font-bold font-mono text-[#10b981] mt-0.5 block">{formatCOP(totalRetailValue)}</span>
+          </div>
+          <span className="text-[10px] text-[#e6bdb8]/80 font-mono mt-1 pt-1 border-t border-[#374151]/30">
+            P.V.P Total catálogo
+          </span>
         </div>
 
-        <div className="bg-[#191f2f] border border-[#374151]/40 rounded-xl p-3 flex flex-col">
-          <span className="text-[11px] text-[#e6bdb8]">Margen Bruto Estimado</span>
-          <span className="text-xl font-bold font-mono text-[#f59e0b] mt-0.5">{avgGrossMargin}%</span>
-          <span className="text-[10px] text-[#e6bdb8]/80 font-mono">Ganancia: {formatCOP(estimatedProfit)}</span>
+        <div className="bg-[#191f2f] border border-[#374151]/40 rounded-xl p-3 flex flex-col justify-between">
+          <div>
+            <span className="text-[11px] text-[#e6bdb8]">Margen Bruto Estimado</span>
+            <span className="text-xl font-bold font-mono text-[#f59e0b] mt-0.5 block">{avgGrossMargin}%</span>
+          </div>
+          <div className="mt-1 pt-1 border-t border-[#374151]/30 text-[10px] text-[#e6bdb8]/80 font-mono flex items-center justify-between">
+            <span>Ganancia:</span>
+            <strong className="text-[#10b981]">{formatCOP(estimatedProfit)}</strong>
+          </div>
         </div>
 
         {/* Interactive Stock Warnings KPI Card */}
@@ -653,7 +842,52 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Category Dropdown */}
+          {/* BOTÓN FILTRO PARA DESPLEGAR Y OCULTAR LAS CATEGORÍAS */}
+          <button
+            type="button"
+            onClick={() => {
+              posAudio.playKeyClick();
+              setShowCategoriesFilter((prev) => !prev);
+            }}
+            title="Desplegar u ocultar el panel de categorías y filtros"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer ${
+              showCategoriesFilter
+                ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-500/30'
+                : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border-amber-500/40'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[17px]">
+              {showCategoriesFilter ? 'expand_less' : 'filter_list'}
+            </span>
+            <span>Categorías</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                showCategoriesFilter ? 'bg-black text-amber-300' : 'bg-amber-500/30 text-amber-200'
+              }`}
+            >
+              {categoryFilter === 'Todos' ? `${allKnownCategories.length}` : categoryFilter}
+            </span>
+            <span className="text-[10px] hidden xs:inline">
+              {showCategoriesFilter ? '▲ Ocultar' : '▼ Desplegar'}
+            </span>
+          </button>
+
+          {/* BOTÓN CREAR / GESTIONAR CATEGORÍAS */}
+          <button
+            type="button"
+            onClick={() => {
+              posAudio.playKeyClick();
+              setShowCategoryModal(true);
+            }}
+            title="Crear o eliminar categorías del inventario"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#232a3a] hover:bg-[#323949] text-amber-300 hover:text-white border border-[#374151]/50 text-xs font-semibold transition-all shadow-sm active:scale-95 cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[16px] text-amber-400">add_circle</span>
+            <span className="hidden sm:inline">+ Crear / Eliminar Categoría</span>
+            <span className="sm:hidden">+ Categoría</span>
+          </button>
+
+          {/* Quick Category Dropdown */}
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
@@ -794,6 +1028,131 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* PANEL DESPLEGABLE Y OCULTABLE DE CATEGORÍAS */}
+      {showCategoriesFilter && (
+        <section
+          aria-label="Filtro Desplegable de Categorías"
+          className="bg-[#141b2b] border-2 border-amber-500/50 rounded-2xl p-3.5 sm:p-4 space-y-3 shadow-xl transition-all duration-300 animate-fadeIn"
+        >
+          <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-[#374151]/40">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-amber-400 text-[20px]">category</span>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                  <span>Filtrar Inventario por Categoría</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {allKnownCategories.length} categorías disponibles
+                  </span>
+                </h4>
+                <p className="text-[11px] text-[#e6bdb8]">
+                  Toca una categoría para filtrar el inventario. También puedes crear nuevas o eliminarlas.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setShowCategoryModal(true);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[16px]">add_circle</span>
+                <span>+ Crear Categoría</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setShowCategoryModal(true);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-[#232a3a] hover:bg-[#323949] text-red-400 hover:text-white border border-red-500/30 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[16px]">delete</span>
+                <span>Eliminar Categorías</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  posAudio.playKeyClick();
+                  setShowCategoriesFilter(false);
+                }}
+                title="Ocultar panel de categorías"
+                className="w-7 h-7 rounded-lg bg-[#232a3a] text-[#e6bdb8] hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[16px]">expand_less</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Category Chips Bar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Todas Chip */}
+            <button
+              type="button"
+              onClick={() => {
+                posAudio.playKeyClick();
+                setCategoryFilter('Todos');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                categoryFilter === 'Todos'
+                  ? 'bg-amber-500 text-black shadow-md shadow-amber-950/40 ring-1 ring-amber-300'
+                  : 'bg-[#0c1322] hover:bg-[#1a2337] text-[#e6bdb8] border border-[#374151]/50'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[15px]">apps</span>
+              <span>Todas las Categorías</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  categoryFilter === 'Todos' ? 'bg-black/20 text-black' : 'bg-[#232a3a] text-[#adc6ff]'
+                }`}
+              >
+                {products.length}
+              </span>
+            </button>
+
+            {/* Individual Category Chips */}
+            {activeCategoriesList.map((cat) => {
+              const count = products.filter(
+                (p) => p.category.toLowerCase().trim() === cat.name.toLowerCase().trim()
+              ).length;
+              const isSelected = categoryFilter.toLowerCase().trim() === cat.name.toLowerCase().trim();
+              const iconName = resolveCategoryIcon(cat.name, activeCategoriesList);
+
+              return (
+                <button
+                  key={cat.name}
+                  type="button"
+                  onClick={() => {
+                    posAudio.playKeyClick();
+                    setCategoryFilter(isSelected ? 'Todos' : cat.name);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500 text-black font-bold shadow-md ring-1 ring-amber-300'
+                      : 'bg-[#0c1322] hover:bg-[#1a2337] text-[#dce2f7] border border-[#374151]/50'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">{iconName}</span>
+                  <span>{cat.name}</span>
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                      isSelected ? 'bg-black/20 text-black font-bold' : 'bg-[#232a3a] text-[#adc6ff]'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* SECCIÓN DENTRO DEL PANEL: Configuración Permanente de Formato de Ticket (80mm, 58mm, 57mm) */}
       {showPrintFormatSection && (
@@ -2878,6 +3237,20 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           onClose={() => setShowPrintFormatModal(false)}
         />
       )}
+
+      {/* Category Management Modal: Create and Delete Categories */}
+      <CategoryManagementModal
+        isOpen={showCategoryModal}
+        onClose={() => setShowCategoryModal(false)}
+        categories={activeCategoriesList}
+        products={products}
+        onCategoriesChanged={() => setCategoriesVersion((v) => v + 1)}
+        onUpdateProduct={onUpdateProduct}
+        onSelectCategory={(catName) => {
+          setCategoryFilter(catName);
+          setShowCategoryModal(false);
+        }}
+      />
     </div>
   );
 };
